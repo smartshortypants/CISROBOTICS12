@@ -1,8 +1,7 @@
-/* Monochrome (black & white) global styles */
 :root {
   --bg: #ffffff;
   --fg: #000000;
-  --muted: #666666;
+  --muted: #6b6b6b;
   --bubble-bg: #ffffff;
   --bubble-border: #000000;
   --input-bg: #ffffff;
@@ -15,28 +14,26 @@ html, body, #__next {
   background: var(--bg);
   color: var(--fg);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  font-size: 16px;
 }
 
 a { color: var(--fg); text-decoration: underline; }
 
-/* Container */
 .container {
   max-width: 720px;
-  margin: 40px auto;
-  padding: 24px;
+  margin: 32px auto;
+  padding: 20px;
 }
 
-/* Chat box */
 .chat-shell {
   border: 1px solid var(--bubble-border);
   border-radius: 12px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  min-height: 480px;
+  min-height: 520px;
 }
 
-/* Message list */
 .messages {
   padding: 18px;
   display: flex;
@@ -44,37 +41,35 @@ a { color: var(--fg); text-decoration: underline; }
   gap: 18px;
   overflow-y: auto;
   flex: 1;
+  background: #fff;
 }
 
-/* Message row */
 .msg-row {
   display: flex;
   gap: 12px;
   align-items: flex-start;
 }
 
-/* Bubble */
 .bubble {
   background: var(--bubble-bg);
   border: 1px solid var(--bubble-border);
-  padding: 12px 14px;
+  padding: 12px 16px;
   border-radius: 12px;
-  max-width: 80%;
+  max-width: 78%;
   color: var(--fg);
   line-height: 1.5;
+  font-size: 15px;
 }
 
-/* Assistant/user alignment */
 .msg-row.assistant { justify-content: flex-start; }
 .msg-row.user { justify-content: flex-end; }
 
 .msg-row.user .bubble { background: var(--bg); border-color: var(--bubble-border); }
 .msg-row.user .avatar { order: 2; }
 
-/* Avatar */
 .avatar {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   border: 1px solid var(--bubble-border);
   display: inline-flex;
@@ -84,7 +79,6 @@ a { color: var(--fg); text-decoration: underline; }
   flex-shrink: 0;
 }
 
-/* Sources area */
 .sources {
   margin-top: 10px;
   border-top: 1px solid var(--bubble-border);
@@ -95,13 +89,13 @@ a { color: var(--fg); text-decoration: underline; }
 
 .sources a { color: var(--fg); font-weight: 600; }
 
-/* Input area */
 .input-bar {
   display: flex;
   gap: 12px;
   padding: 14px;
   border-top: 1px solid var(--bubble-border);
   background: var(--bg);
+  align-items: center;
 }
 
 .input {
@@ -130,8 +124,8 @@ a { color: var(--fg); text-decoration: underline; }
   cursor: not-allowed;
 }
 
-/* small screen tweaks */
 @media (max-width: 640px) {
   .container { margin: 18px; padding: 12px; }
   .chat-shell { min-height: 420px; }
+  .bubble { font-size: 14px; }
 }
