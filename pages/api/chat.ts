@@ -6,13 +6,11 @@ type BotResp = { role: 'assistant'; text: string; sources: Source[] }
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-3.5-turbo'
 const BING_API_KEY = process.env.BING_API_KEY
-// FRONTEND_ORIGIN can be set to your GitHub Pages or Vercel frontend origin to restrict CORS.
-// If not set, '*' will be used (open CORS).
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || '*'
 
-async function callOpenAI(systemPrompt: string, userPrompt: string) {
+async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<string> {
   if (!OPENAI_API_KEY) {
-    throw new Error('Missing OPENAI_API_KEY in environment')
+    throw new Error('Missing OPENAI_API_KEY')
   }
 
   const body = {
@@ -31,8 +29,7 @@ async function callOpenAI(systemPrompt: string, userPrompt: string) {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${OPENAI_API_KEY}`
     },
-    body: JSON.stringify(body),
-    // Vercel uses Node 18+ which provides global fetch
+    body: JSON.stringify(body)
   })
 
   if (!res.ok) {
@@ -45,7 +42,7 @@ async function callOpenAI(systemPrompt: string, userPrompt: string) {
   return assistant
 }
 
-async function callBing(q: string) {
+async function callBing(q: string): Promise<Source[]> {
   if (!BING_API_KEY) return []
   try {
     const params = new URLSearchParams({ q, count: '4' })
@@ -61,26 +58,20 @@ async function callBing(q: string) {
       excerpt: p.snippet || ''
     }))
   } catch (err) {
-    console.error('Bing search error', err)
+    console.error('Bing error', err)
     return []
   }
 }
 
-function setCorsHeaders(res: NextApiResponse) {
-  // Allow either the configured frontend origin or all origins if FRONTEND_ORIGIN='*'
+function setCors(res: NextApiResponse) {
   res.setHeader('Access-Control-Allow-Origin', FRONTEND_ORIGIN)
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-  // Optional: allow credentials if you set FRONTEND_ORIGIN exactly and need cookies
-  // res.setHeader('Access-Control-Allow-Credentials', 'true')
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
-    // Always set CORS headers for every response
-    setCorsHeaders(res)
-
-    // Handle preflight
+    setCors(res)
     if (req.method === 'OPTIONS') {
       res.status(200).end()
       return
@@ -97,32 +88,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return
     }
 
-    // 1) Optional: fetch web results (Bing) and include them in the user prompt
+    // Optional live web search (if BING_API_KEY provided)
     const webResults = await callBing(query)
 
-    // 2) Build prompts
-    let systemPrompt =
+    const systemPrompt =
       'You are ArcheoHub, a helpful assistant. When given web search results, use them to answer and explicitly cite which URLs you used. Keep answers concise and factual. If results are available, include a short Sources list at the end.'
-    let userPrompt = query
+    let userPrompt: string = query
 
     if (webResults.length > 0) {
       const formatted = webResults
-        .map(
-          (w, i) =>
-            `Result ${i + 1}:
+        .map((w: Source, i: number) => {
+          return `Result ${i + 1}:
 Title: ${w.title}
 URL: ${w.url}
-Snippet: ${w.excerpt}
-`
-        )
-        .join('\n')
-      userPrompt = `Use the following web search results to answer the question and cite sources from them where relevant:\n\n${formatted}\nQuestion: ${query}`
+Snippet: ${w.excerpt}`
+        })
+        .join('\n\n')
+      userPrompt = `Use the following web search results to answer the question and cite sources from them where relevant:\n\n${formatted}\n\nQuestion: ${query}`
     }
 
-    // 3) Call OpenAI
     const assistantText = await callOpenAI(systemPrompt, userPrompt)
-
-    // 4) Return structured response (assistant text + structured webResults)
     const botResp: BotResp = {
       role: 'assistant',
       text: assistantText,
@@ -131,8 +116,7 @@ Snippet: ${w.excerpt}
     res.status(200).json(botResp)
   } catch (err: any) {
     console.error('API error', err)
-    // Ensure CORS headers exist even on error responses
-    try { setCorsHeaders(res) } catch {}
+    try { setCors(res) } catch {}
     res.status(500).json({ error: err?.message || 'internal error' })
   }
 }
