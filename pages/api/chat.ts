@@ -4,7 +4,7 @@ type Source = { url: string; title?: string; excerpt?: string }
 type BotResp = { role: 'assistant'; text: string; sources: Source[] }
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY
-const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-3.5-turbo'
+const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4.1-mini'
 const BING_API_KEY = process.env.BING_API_KEY
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || '*'
 
