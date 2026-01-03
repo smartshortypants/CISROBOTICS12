@@ -26,11 +26,18 @@ export default function Chat() {
     try {
       const url = API_BASE ? `${API_BASE}/api/chat` : '/api/chat'
       const res = await axios.post(url, { query: text })
-      // Expect: { role: 'assistant', text: string, sources: [] }
       setMessages((m) => [...m, res.data])
-    } catch (err) {
-      console.error(err)
-      setMessages((m) => [...m, { role: 'assistant', text: 'Sorry — an error occurred.', sources: [] }])
+    } catch (err: any) {
+      console.error('Chat send error:', err)
+      const serverMsg =
+        err?.response?.data?.error ||
+        err?.response?.data?.message ||
+        err?.message ||
+        'Sorry — an unexpected error occurred.'
+      setMessages((m) => [
+        ...m,
+        { role: 'assistant', text: serverMsg, sources: [] }
+      ])
     } finally {
       setLoading(false)
     }
@@ -85,11 +92,21 @@ export default function Chat() {
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onKeyDown}
             disabled={loading}
+            aria-label="Ask ArcheoHub"
           />
-          <button className="btn" onClick={send} disabled={loading || !query.trim()}>
+          <button
+            className="btn"
+            onClick={send}
+            disabled={loading || !query.trim()}
+            aria-label="Send"
+          >
             {loading ? '…' : 'Send'}
           </button>
         </div>
+      </div>
+
+      <div style={{ marginTop: 10, fontSize: 13, color: '#666' }}>
+        Tip: If you see errors, open DevTools → Network and check the POST to <code>/api/chat</code> for the response body.
       </div>
     </div>
   )
