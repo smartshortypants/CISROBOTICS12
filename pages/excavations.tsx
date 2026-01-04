@@ -41,6 +41,66 @@ const EXCAVATIONS = [
     image:
       "https://upload.wikimedia.org/wikipedia/commons/6/66/Pompeii_Amphitheater.JPG",
   },
+  {
+    id: 5,
+    name: "Göbekli Tepe",
+    location: "Turkey",
+    period: "10th millennium BC",
+    description:
+      "A series of monumental circular structures that predate agriculture; rewrote prehistory timelines.",
+    image:
+      "https://upload.wikimedia.org/wikipedia/commons/7/79/Gobekli_Tepe_2013.jpg",
+  },
+  {
+    id: 6,
+    name: "Çatalhöyük",
+    location: "Turkey",
+    period: "Neolithic",
+    description:
+      "Large Neolithic proto-city with densely packed houses and rich symbolic art.",
+    image:
+      "https://upload.wikimedia.org/wikipedia/commons/8/86/Catalhoyuk.jpg",
+  },
+  {
+    id: 7,
+    name: "Valley of the Kings",
+    location: "Egypt",
+    period: "New Kingdom",
+    description:
+      "Royal necropolis near Luxor where many pharaohs were buried in elaborately decorated tombs.",
+    image:
+      "https://upload.wikimedia.org/wikipedia/commons/0/0f/Valley_of_the_Kings.jpg",
+  },
+  {
+    id: 8,
+    name: "Knossos",
+    location: "Greece",
+    period: "Bronze Age",
+    description:
+      "Palatial center of the Minoan civilization, associated with the legend of the Minotaur.",
+    image:
+      "https://upload.wikimedia.org/wikipedia/commons/2/2d/Knossos_-_Palace_-_panoramio.jpg",
+  },
+  {
+    id: 9,
+    name: "Tikal",
+    location: "Guatemala",
+    period: "Classic Maya",
+    description:
+      "Major Maya city with towering temples set in dense rainforest, key for understanding Maya civilization.",
+    image:
+      "https://upload.wikimedia.org/wikipedia/commons/8/8a/Tikal_Temple_IV.jpg",
+  },
+  {
+    id: 10,
+    name: "Ephesus",
+    location: "Turkey",
+    period: "Classical Antiquity",
+    description:
+      "Well-preserved Greco-Roman city with an impressive theatre and the Library of Celsus.",
+    image:
+      "https://upload.wikimedia.org/wikipedia/commons/2/2c/Ephesus_-_Library_of_Celsus,_west_side_(2013).jpg",
+  },
 ];
 
 export default function ExcavationsPage() {
@@ -77,9 +137,7 @@ export default function ExcavationsPage() {
             </div>
             <div style={styles.cardBody}>
               <h3 style={styles.cardTitle}>{site.name}</h3>
-              <div style={styles.era}>
-                {site.location} — {site.period}
-              </div>
+              <div style={styles.era}>{site.location} — {site.period}</div>
               <p style={styles.desc}>{site.description}</p>
             </div>
           </div>
