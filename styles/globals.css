@@ -1,257 +1,208 @@
-import React, { useState } from "react";
-
-// Dark Chat UI component (Tailwind CSS required)
-// Default export a single React component you can paste into a Next.js / React app.
-
-export default function DarkChatUI() {
-  const [chats, setChats] = useState([
-    {
-      id: "c1",
-      title: "Project ideas",
-      pinned: true,
-      messages: [
-        { id: 1, role: "assistant", text: "Hey — want help brainstorming project ideas?" },
-        { id: 2, role: "user", text: "Yes — a small web app for learning." },
-      ],
-    },
-    {
-      id: "c2",
-      title: "Travel plan",
-      pinned: false,
-      messages: [
-        { id: 1, role: "assistant", text: "Where do you want to go?" },
-      ],
-    },
-    {
-      id: "c3",
-      title: "Shopping list",
-      pinned: false,
-      messages: [
-        { id: 1, role: "user", text: "Milk, eggs, coffee" },
-      ],
-    },
-  ]);
-
-  const [activeChatId, setActiveChatId] = useState(chats[0].id);
-  const [input, setInput] = useState("");
-
-  const activeChat = chats.find((c) => c.id === activeChatId);
-
-  function createNewChat() {
-    const id = `c${Date.now()}`;
-    const newChat = { id, title: "New chat", pinned: false, messages: [] };
-    setChats((s) => [newChat, ...s]);
-    setActiveChatId(id);
-  }
-
-  function sendMessage() {
-    if (!input.trim()) return;
-    setChats((prev) =>
-      prev.map((c) =>
-        c.id === activeChatId
-          ? { ...c, messages: [...c.messages, { id: Date.now(), role: "user", text: input }] }
-          : c
-      )
-    );
-    setInput("");
-    // Mock assistant reply after a brief pause (for demo only)
-    setTimeout(() => {
-      setChats((prev) =>
-        prev.map((c) =>
-          c.id === activeChatId
-            ? {
-                ...c,
-                messages: [
-                  ...c.messages,
-                  { id: Date.now() + 1, role: "assistant", text: "Nice — I can expand on that." },
-                ],
-              }
-            : c
-        )
-      );
-    }, 600);
-  }
-
-  function deleteChat(id) {
-    setChats((s) => s.filter((c) => c.id !== id));
-    if (activeChatId === id && chats.length > 1) setActiveChatId(chats[0].id);
-  }
-
-  function renameChat(id, name) {
-    setChats((s) => s.map((c) => (c.id === id ? { ...c, title: name } : c)));
-  }
-
-  const pinned = chats.filter((c) => c.pinned);
-  const recent = chats.filter((c) => !c.pinned);
-
-  return (
-    <div className="min-h-screen bg-neutral-900 text-white p-6 flex items-start justify-center">
-      <div className="w-full max-w-6xl grid grid-cols-12 gap-6">
-        {/* Sidebar: past chats & controls */}
-        <aside className="col-span-3 bg-neutral-950 border border-neutral-800 rounded-2xl p-4 flex flex-col gap-4 h-[80vh]">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-xl font-semibold">A</div>
-              <div>
-                <div className="text-sm font-semibold">Your Chats</div>
-                <div className="text-xs text-neutral-400">ChatGPT 4o‑mini</div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={createNewChat}
-                className="inline-flex items-center gap-2 bg-white/8 hover:bg-white/12 transition rounded-xl px-3 py-2 text-sm"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M12 5v14M5 12h14" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-                New
-              </button>
-              <button className="inline-flex items-center gap-2 bg-transparent border border-neutral-800 rounded-xl px-3 py-2 text-sm hover:bg-white/4 transition">Settings</button>
-            </div>
-          </div>
-
-          <div className="flex-1 overflow-y-auto pr-2">
-            {pinned.length > 0 && (
-              <div className="mb-3">
-                <div className="text-xs text-neutral-400 uppercase tracking-wide mb-2">Pinned</div>
-                <div className="flex flex-col gap-2">
-                  {pinned.map((c) => (
-                    <button
-                      key={c.id}
-                      onClick={() => setActiveChatId(c.id)}
-                      className={`text-left w-full p-2 rounded-lg transition flex items-center justify-between ${
-                        activeChatId === c.id ? "bg-white/6" : "hover:bg-white/3"
-                      }`}
-                    >
-                      <div>
-                        <div className="text-sm font-medium">{c.title}</div>
-                        <div className="text-xs text-neutral-400">{c.messages.length} messages</div>
-                      </div>
-                      <div className="text-xs text-neutral-400">•</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div>
-              <div className="text-xs text-neutral-400 uppercase tracking-wide mb-2">Recent</div>
-              <div className="flex flex-col gap-2">
-                {recent.map((c) => (
-                  <div key={c.id} className="flex items-center justify-between gap-2">
-                    <button
-                      onClick={() => setActiveChatId(c.id)}
-                      className={`text-left w-full p-2 rounded-lg transition flex items-center gap-3 ${
-                        activeChatId === c.id ? "bg-white/6" : "hover:bg-white/3"
-                      }`}
-                    >
-                      <div className="w-8 h-8 rounded-md bg-white/6 flex items-center justify-center text-sm font-medium">{c.title[0]}</div>
-                      <div className="flex-1">
-                        <div className="text-sm">{c.title}</div>
-                        <div className="text-xs text-neutral-400">{c.messages[c.messages.length - 1]?.text.slice(0, 40) || "Start a conversation"}</div>
-                      </div>
-                    </button>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => renameChat(c.id, prompt("Rename chat", c.title) || c.title)}
-                        className="p-2 rounded-md hover:bg-white/5 text-neutral-300"
-                        title="Rename"
-                      >
-                        ✏️
-                      </button>
-                      <button
-                        onClick={() => deleteChat(c.id)}
-                        className="p-2 rounded-md hover:bg-white/5 text-red-400"
-                        title="Delete"
-                      >
-                        🗑️
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="text-xs text-neutral-400 border-t border-neutral-800 pt-3 flex items-center justify-between">
-            <div>Model: <span className="font-medium text-white">GPT‑4o‑mini</span></div>
-            <button className="text-sm px-3 py-1 rounded-md bg-white/6">Export</button>
-          </div>
-        </aside>
-
-        {/* Main chat area */}
-        <main className="col-span-6 bg-neutral-950 border border-neutral-800 rounded-2xl flex flex-col overflow-hidden h-[80vh]">
-          <div className="px-6 py-4 border-b border-neutral-800 flex items-center justify-between">
-            <div>
-              <div className="text-lg font-semibold">{activeChat?.title || "No chat selected"}</div>
-              <div className="text-xs text-neutral-400">{activeChat?.messages.length} messages</div>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => {
-                  renameChat(activeChat.id, prompt("Rename chat", activeChat.title) || activeChat.title);
-                }}
-                className="px-3 py-2 rounded-lg hover:bg-white/6 transition"
-              >
-                Rename
-              </button>
-              <button
-                onClick={() => deleteChat(activeChat.id)}
-                className="px-3 py-2 rounded-lg bg-red-600/30 hover:bg-red-600/40 transition"
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-6 space-y-4" style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.01), transparent)" }}>
-            {activeChat?.messages.length ? (
-              activeChat.messages.map((m) => (
-                <div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                  <div className={`${m.role === "user" ? "bg-white/6 text-white" : "bg-white/8 text-white"} max-w-[70%] p-4 rounded-xl border border-neutral-800`}>
-                    <div className="text-sm leading-6">{m.text}</div>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="text-center text-neutral-400 mt-12">No messages yet — start the conversation!</div>
-            )}
-          </div>
-
-          <div className="p-4 border-t border-neutral-800 bg-gradient-to-t from-transparent to-black/5">
-            <div className="flex items-center gap-3">
-              <input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-                placeholder="Send a message..."
-                className="flex-1 bg-white/6 placeholder:text-neutral-400 rounded-xl px-4 py-3 outline-none border border-neutral-800 focus:border-white/40"
-              />
-              <button onClick={sendMessage} className="rounded-xl px-5 py-3 bg-white text-black font-semibold">Send</button>
-            </div>
-            <div className="mt-3 flex gap-2 text-xs text-neutral-400">
-              <button className="px-3 py-1 rounded-full bg-white/6">Regenerate</button>
-              <button className="px-3 py-1 rounded-full bg-white/6">Share</button>
-              <button className="px-3 py-1 rounded-full bg-white/6">Save</button>
-            </div>
-          </div>
-        </main>
-
-        {/* Right column: extra actions / details */}
-        <aside className="col-span-3 bg-neutral-950 border border-neutral-800 rounded-2xl p-4 h-[80vh] flex flex-col gap-4">
-          <div className="text-sm font-semibold">Actions</div>
-
-          <div className="flex flex-col gap-2">
-            <button className="w-full text-left p-3 rounded-xl bg-white/6">New chat with template</button>
-            <button className="w-full text-left p-3 rounded-xl bg-white/6">Export conversation</button>
-            <button className="w-full text-left p-3 rounded-xl bg-white/6">Clear history</button>
-          </div>
-
-          <div className="mt-auto text-xs text-neutral-400">Tip: Pin important chats to keep them at the top.</div>
-        </aside>
-      </div>
-    </div>
-  );
+:root {
+  --bg: #0b0b0d;
+  --fg: #ffffff;
+  --muted: #aaaaaa;
+  --bubble-bg: #1a1a1e;
+  --user-bubble-bg: #2b2b34;
+  --bubble-border: #333344;
+  --input-bg: #1a1a1e;
+  --input-border: #333344;
+  --btn-bg: #ffffff;
+  --btn-color: #0b0b0d;
+  --btn-hover-bg: #e0e0e0;
 }
 
+* {
+  box-sizing: border-box;
+}
+
+html, body, #__next {
+  height: 100%;
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: 'Inter', sans-serif;
+  font-size: 16px;
+}
+
+a {
+  color: #8ab4f8;
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+a:hover { color: #c0cfff; }
+
+.container {
+  max-width: 960px;
+  margin: 32px auto;
+  padding: 20px;
+  display: flex;
+  gap: 24px;
+}
+
+/* Sidebar - Past Chats */
+.sidebar {
+  flex: 1;
+  background: #111115;
+  border: 1px solid #222233;
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  height: 80vh;
+  padding: 16px;
+  gap: 12px;
+}
+
+.sidebar .section-title {
+  text-transform: uppercase;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.sidebar button.chat-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px;
+  border-radius: 12px;
+  background: #111115;
+  color: var(--fg);
+  border: 1px solid #222233;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+.sidebar button.chat-item:hover {
+  background: #222233;
+}
+.sidebar button.chat-item.active {
+  background: #2b2b34;
+}
+
+/* Chat Area */
+.chat-shell {
+  flex: 3;
+  display: flex;
+  flex-direction: column;
+  background: #111115;
+  border-radius: 16px;
+  border: 1px solid #222233;
+  overflow: hidden;
+  height: 80vh;
+}
+
+.chat-header {
+  padding: 16px;
+  border-bottom: 1px solid #222233;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.chat-messages {
+  flex: 1;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  background: linear-gradient(to bottom, #111115, #0b0b0d);
+}
+
+.msg-row {
+  display: flex;
+  gap: 12px;
+}
+
+.msg-row.assistant { justify-content: flex-start; }
+.msg-row.user { justify-content: flex-end; }
+
+.bubble {
+  max-width: 70%;
+  padding: 14px 18px;
+  border-radius: 18px;
+  background: var(--bubble-bg);
+  border: 1px solid var(--bubble-border);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--fg);
+}
+
+.msg-row.user .bubble {
+  background: var(--user-bubble-bg);
+  border-color: #444455;
+}
+
+/* Input Bar */
+.input-bar {
+  padding: 16px;
+  border-top: 1px solid #222233;
+  display: flex;
+  gap: 12px;
+  background: #111115;
+}
+
+.input-bar input {
+  flex: 1;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  color: var(--fg);
+  outline: none;
+}
+
+.input-bar input:focus {
+  border-color: #8ab4f8;
+}
+
+.input-bar button {
+  padding: 12px 18px;
+  border-radius: 12px;
+  border: none;
+  background: var(--btn-bg);
+  color: var(--btn-color);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+.input-bar button:hover {
+  background: var(--btn-hover-bg);
+}
+
+/* Right Column - Actions */
+.actions {
+  flex: 1;
+  background: #111115;
+  border: 1px solid #222233;
+  border-radius: 16px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.actions button {
+  padding: 12px;
+  border-radius: 12px;
+  background: #222233;
+  color: var(--fg);
+  border: 1px solid #333344;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+.actions button:hover {
+  background: #333344;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .container {
+    flex-direction: column;
+    margin: 16px;
+    gap: 16px;
+  }
+  .chat-shell { height: 60vh; }
+  .sidebar, .actions { height: auto; }
+}
