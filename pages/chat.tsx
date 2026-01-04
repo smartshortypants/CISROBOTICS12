@@ -10,6 +10,9 @@ type Message = {
   text: string;
   ts?: string;
   error?: boolean;
+  pending?: boolean;
+  // metaPrompt stores the original user prompt so retries can resend the same prompt
+  metaPrompt?: string;
 };
 
 type Settings = {
@@ -18,14 +21,18 @@ type Settings = {
   avatarMode: "emoji" | "initials" | "image";
   assistantImage?: string;
   userImage?: string;
+  assistantName: string;
+  userName: string;
 };
 
 const DEFAULT_SETTINGS: Settings = {
   dark: true,
-  accent: "#0ea5a4", // default branding-ish teal — change via color picker
+  accent: "#0ea5a4",
   avatarMode: "emoji",
   assistantImage: "",
   userImage: "",
+  assistantName: "Assistant",
+  userName: "You",
 };
 
 const AVATAR_ASSISTANT = "🤖";
@@ -100,7 +107,14 @@ function simpleMarkdownToHtml(md: string) {
   return out.join("\n");
 }
 
-// simple color lighten/darken helper
+function getInitials(name: string) {
+  if (!name) return "U";
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "U";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
 function adjustColor(hex: string, percent: number) {
   try {
     const sanitized = hex.replace("#", "");
@@ -156,6 +170,12 @@ export default function ChatPage() {
     } catch {}
   }, [settings]);
 
+  // Helper to upsert a message by id
+  function upsertMessage(id: string, patch: Partial<Message>) {
+    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)));
+  }
+
+  // Send a prompt: adds user message + placeholder assistant and performs request.
   const send = useCallback(
     async (maybeText?: string) => {
       const text = (maybeText ?? input).trim();
@@ -166,34 +186,61 @@ export default function ChatPage() {
         text,
         ts: nowISO(),
       };
-      setMessages((s) => [...s, userMsg]);
+      // assistant placeholder (pending)
+      const assistId = uid("a_");
+      const assistantPlaceholder: Message = {
+        id: assistId,
+        role: "assistant",
+        text: "…", // placeholder
+        ts: nowISO(),
+        pending: true,
+        metaPrompt: text,
+      };
+
+      setMessages((s) => [...s, userMsg, assistantPlaceholder]);
       setInput("");
       setLoading(true);
+
       try {
-        const res = await axios.post("/api/chat", { prompt: userMsg.text });
+        const res = await axios.post("/api/chat", { prompt: text });
         const assistantText = res.data?.text ?? "(no response)";
-        const assistantMsg: Message = {
-          id: uid("m_"),
-          role: "assistant",
-          text: assistantText,
-          ts: nowISO(),
-        };
-        setMessages((s) => [...s, assistantMsg]);
-      } catch (err) {
-        const assistantMsg: Message = {
-          id: uid("m_"),
-          role: "assistant",
-          text: "Sorry — could not reach the assistant. Try again later.",
-          ts: nowISO(),
+        upsertMessage(assistId, { text: assistantText, pending: false, error: false });
+      } catch (err: any) {
+        // set a friendly error and allow retry
+        upsertMessage(assistId, {
+          text: "Sorry — I couldn't reach the assistant. Tap Retry to try again.",
+          pending: false,
           error: true,
-        };
-        setMessages((s) => [...s, assistantMsg]);
+        });
+        console.error("chat send error:", err?.message ?? err);
       } finally {
         setLoading(false);
       }
     },
     [input]
   );
+
+  // Retry a failed assistant message (resends metaPrompt)
+  const retryAssistant = useCallback(async (assistantMsg: Message) => {
+    if (!assistantMsg.metaPrompt) return;
+    const id = assistantMsg.id;
+    upsertMessage(id, { pending: true, error: false, text: "…" });
+    setLoading(true);
+    try {
+      const res = await axios.post("/api/chat", { prompt: assistantMsg.metaPrompt });
+      const assistantText = res.data?.text ?? "(no response)";
+      upsertMessage(id, { text: assistantText, pending: false, error: false });
+    } catch (err: any) {
+      upsertMessage(id, {
+        text: "Retry failed — still couldn't reach the assistant. Please check your connection or try again later.",
+        pending: false,
+        error: true,
+      });
+      console.error("retry error:", err?.message ?? err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -219,26 +266,28 @@ export default function ChatPage() {
       return <div className="avatar-emoji">{role === "assistant" ? AVATAR_ASSISTANT : AVATAR_USER}</div>;
     }
     if (mode === "initials") {
-      const label = role === "assistant" ? "A" : "Y";
+      const name = role === "assistant" ? settings.assistantName : settings.userName;
+      const label = getInitials(name);
       return <div className="avatar-initials">{label}</div>;
     }
-    // image mode
     const url = role === "assistant" ? settings.assistantImage : settings.userImage;
     if (url) {
-      return <img className="avatar-img" src={url} alt={`${role} avatar`} onError={(e) => {
-        // fallback to emoji if image fails
-        (e.target as HTMLImageElement).style.display = "none";
-      }} />;
+      return (
+        <img
+          className="avatar-img"
+          src={url}
+          alt={`${role} avatar`}
+          onError={(e) => {
+            (e.target as HTMLImageElement).style.display = "none";
+          }}
+        />
+      );
     }
-    // fallback to emoji
     return <div className="avatar-emoji">{role === "assistant" ? AVATAR_ASSISTANT : AVATAR_USER}</div>;
   }
 
   const accentStrong = adjustColor(settings.accent, -0.18);
-
-  // inline CSS variables via style prop so color inputs update live
   const cssVars = {
-    // cast to any to allow custom properties
     ["--accent" as any]: settings.accent,
     ["--accent-strong" as any]: accentStrong,
     ["--white" as any]: settings.dark ? "#ffffff" : "#081022",
@@ -318,6 +367,23 @@ export default function ChatPage() {
             </select>
           </div>
 
+          <div className="settings-row">
+            <label>Assistant name</label>
+            <input
+              type="text"
+              value={settings.assistantName}
+              onChange={(e) => updateSetting("assistantName", e.target.value)}
+            />
+          </div>
+          <div className="settings-row">
+            <label>Your name</label>
+            <input
+              type="text"
+              value={settings.userName}
+              onChange={(e) => updateSetting("userName", e.target.value)}
+            />
+          </div>
+
           {settings.avatarMode === "image" && (
             <>
               <div className="settings-row">
@@ -355,7 +421,7 @@ export default function ChatPage() {
 
               <div className="bubble">
                 <div className="meta">
-                  <span className="role">{m.role === "assistant" ? "Assistant" : "You"}</span>
+                  <span className="role">{m.role === "assistant" ? settings.assistantName : settings.userName}</span>
                   <span className="ts">{formatTime(m.ts)}</span>
                 </div>
 
@@ -364,7 +430,24 @@ export default function ChatPage() {
                   dangerouslySetInnerHTML={{ __html: simpleMarkdownToHtml(m.text || "") }}
                 />
 
-                {m.error && <div className="error">Error sending message</div>}
+                {/* Improved error UI: show Retry when possible */}
+                {m.error && m.metaPrompt && (
+                  <div className="error-row">
+                    <div className="error">{m.text}</div>
+                    <div style={{ marginTop: 8 }}>
+                      <button
+                        className="btn"
+                        onClick={() => retryAssistant(m)}
+                        disabled={m.pending}
+                        aria-disabled={m.pending}
+                      >
+                        {m.pending ? "Retrying…" : "Retry"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {m.error && !m.metaPrompt && <div className="error">{m.text}</div>}
               </div>
             </article>
           ))}
@@ -437,300 +520,57 @@ export default function ChatPage() {
           margin-bottom: 12px;
         }
 
-        .title {
-          font-size: 20px;
-          font-weight: 600;
-        }
+        .title { font-size: 20px; font-weight: 600; }
+        .actions { display:flex; gap:8px; }
 
-        .actions {
-          display: flex;
-          gap: 8px;
-        }
+        .settings-panel { width:100%; max-width:960px; background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent); border:1px solid rgba(255,255,255,0.04); padding:12px; border-radius:10px; margin-bottom:12px; display:flex; flex-direction:column; gap:8px; }
+        .settings-row { display:flex; gap:12px; align-items:center; }
+        .settings-row label { min-width:140px; color:var(--muted); }
+        .hex-input { width:88px; padding:6px; border-radius:6px; border:1px solid rgba(255,255,255,0.04); background:rgba(255,255,255,0.02); color:var(--white); }
 
-        .settings-panel {
-          width: 100%;
-          max-width: 960px;
-          background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent);
-          border: 1px solid rgba(255, 255, 255, 0.04);
-          padding: 12px;
-          border-radius: 10px;
-          margin-bottom: 12px;
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
+        .chat-area { width:100%; max-width:960px; background: linear-gradient(180deg, rgba(255,255,255,0.01), transparent); border:1px solid rgba(255,255,255,0.04); border-radius:12px; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 6px 18px rgba(0,0,0,0.6); }
 
-        .settings-row {
-          display: flex;
-          gap: 12px;
-          align-items: center;
-        }
+        .messages { padding:18px; height:62vh; min-height:320px; overflow:auto; display:flex; flex-direction:column; gap:12px; }
+        .empty { color:var(--muted); text-align:center; margin-top:28px; }
 
-        .settings-row label {
-          min-width: 140px;
-          color: var(--muted);
-        }
+        .message { display:flex; gap:12px; align-items:flex-start; }
+        .avatar { width:44px; height:44px; border-radius:10px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+        .avatar-emoji { width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size:18px; background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); border-radius:8px; color:var(--white); }
+        .avatar-initials { width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-weight:700; background:var(--accent); color:#041025; border-radius:8px; }
+        .avatar-img { width:44px; height:44px; object-fit:cover; border-radius:8px; display:block; }
 
-        .hex-input {
-          width: 88px;
-          padding: 6px;
-          border-radius: 6px;
-          border: 1px solid rgba(255, 255, 255, 0.04);
-          background: rgba(255, 255, 255, 0.02);
-          color: var(--white);
-        }
+        .bubble { background:var(--panel); padding:12px 14px; border-radius:10px; max-width:78%; color:var(--white); box-shadow:0 1px 0 rgba(255,255,255,0.02) inset; border:1px solid rgba(255,255,255,0.03); }
+        .message.user { justify-content:flex-end; }
+        .message.user .bubble { background:var(--bubble-user); margin-left:auto; }
+        .message.assistant .bubble { background:var(--bubble-assistant); margin-right:auto; }
 
-        .chat-area {
-          width: 100%;
-          max-width: 960px;
-          background: linear-gradient(180deg, rgba(255, 255, 255, 0.01), transparent);
-          border: 1px solid rgba(255, 255, 255, 0.04);
-          border-radius: 12px;
-          display: flex;
-          flex-direction: column;
-          overflow: hidden;
-          box-shadow: 0 6px 18px rgba(0, 0, 0, 0.6);
-        }
+        .meta { display:flex; gap:8px; align-items:center; margin-bottom:6px; color:var(--muted); font-size:12px; }
+        .role { color:var(--muted); text-transform:capitalize; }
+        .ts { margin-left:6px; }
 
-        .messages {
-          padding: 18px;
-          height: 62vh;
-          min-height: 320px;
-          overflow: auto;
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-        }
+        .text p { margin:0 0 8px 0; color:var(--white); line-height:1.45; }
+        .text a { color:var(--accent); text-decoration:underline; }
+        .text h1,.text h2,.text h3,.text h4 { color:var(--white); margin:8px 0; }
+        .text blockquote { margin:0 0 8px 0; padding-left:12px; border-left:3px solid rgba(255,255,255,0.06); color:var(--muted); }
+        .text pre.code-block { background:rgba(0,0,0,0.55); padding:12px; border-radius:8px; overflow:auto; color:#e6eef6; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Segoe UI Mono", monospace; font-size:13px; }
 
-        .empty {
-          color: var(--muted);
-          text-align: center;
-          margin-top: 28px;
-        }
+        .error { color:#ffb4b4; margin-top:8px; font-size:13px; }
+        .error-row { display:flex; flex-direction:column; gap:8px; }
 
-        .message {
-          display: flex;
-          gap: 12px;
-          align-items: flex-start;
-        }
+        .composer { display:flex; gap:12px; padding:12px; align-items:flex-end; border-top:1px solid rgba(255,255,255,0.02); background: linear-gradient(180deg, rgba(255,255,255,0.005), transparent); }
+        textarea { flex:1; resize:none; min-height:52px; max-height:220px; padding:12px; border-radius:10px; background:rgba(255,255,255,0.02); color:var(--white); border:1px solid rgba(255,255,255,0.04); outline:none; font-size:14px; }
+        textarea::placeholder { color: rgba(255,255,255,0.45); }
+        textarea:focus { box-shadow:0 0 0 4px rgba(0,0,0,0.14); border-color:var(--accent); }
 
-        .avatar {
-          width: 44px;
-          height: 44px;
-          border-radius: 10px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          flex-shrink: 0;
-        }
+        .composer-actions { display:flex; gap:8px; align-items:center; }
+        .btn { padding:8px 12px; border-radius:10px; background:rgba(255,255,255,0.02); color:var(--white); border:1px solid rgba(255,255,255,0.04); cursor:pointer; font-weight:600; }
+        .btn.primary { background: linear-gradient(180deg, var(--accent), var(--accent-strong)); color:#041025; border:none; }
+        .btn.ghost { background:transparent; border:1px solid rgba(255,255,255,0.03); }
+        .btn:disabled, .btn[aria-disabled="true"] { opacity:0.5; cursor:default; }
 
-        .avatar-emoji {
-          width: 100%;
-          height: 100%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 18px;
-          background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01));
-          border-radius: 8px;
-          color: var(--white);
-        }
+        .theme-light { --bg: #f7fafc; --panel:#ffffff; --muted:#6b7280; --white:#081022; --bubble-user:#eef2ff; --bubble-assistant:#f1f5f9; }
 
-        .avatar-initials {
-          width: 100%;
-          height: 100%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-weight: 700;
-          background: var(--accent);
-          color: #041025;
-          border-radius: 8px;
-        }
-
-        .avatar-img {
-          width: 44px;
-          height: 44px;
-          object-fit: cover;
-          border-radius: 8px;
-          display: block;
-        }
-
-        .bubble {
-          background: var(--panel);
-          padding: 12px 14px;
-          border-radius: 10px;
-          max-width: 78%;
-          color: var(--white);
-          box-shadow: 0 1px 0 rgba(255, 255, 255, 0.02) inset;
-          border: 1px solid rgba(255, 255, 255, 0.03);
-        }
-
-        .message.user {
-          justify-content: flex-end;
-        }
-
-        .message.user .bubble {
-          background: var(--bubble-user);
-          margin-left: auto;
-        }
-
-        .message.assistant .bubble {
-          background: var(--bubble-assistant);
-          margin-right: auto;
-        }
-
-        .meta {
-          display: flex;
-          gap: 8px;
-          align-items: center;
-          margin-bottom: 6px;
-          color: var(--muted);
-          font-size: 12px;
-        }
-
-        .role {
-          color: var(--muted);
-          text-transform: capitalize;
-        }
-
-        .ts {
-          margin-left: 6px;
-        }
-
-        .text p {
-          margin: 0 0 8px 0;
-          color: var(--white);
-          line-height: 1.45;
-        }
-
-        .text a {
-          color: var(--accent);
-          text-decoration: underline;
-        }
-
-        .text h1,
-        .text h2,
-        .text h3,
-        .text h4 {
-          color: var(--white);
-          margin: 8px 0;
-        }
-
-        .text blockquote {
-          margin: 0 0 8px 0;
-          padding-left: 12px;
-          border-left: 3px solid rgba(255, 255, 255, 0.06);
-          color: var(--muted);
-        }
-
-        .text pre.code-block {
-          background: rgba(0, 0, 0, 0.55);
-          padding: 12px;
-          border-radius: 8px;
-          overflow: auto;
-          color: #e6eef6;
-          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Segoe UI Mono",
-            monospace;
-          font-size: 13px;
-        }
-
-        .error {
-          color: #ff6b6b;
-          margin-top: 8px;
-          font-size: 13px;
-        }
-
-        .composer {
-          display: flex;
-          gap: 12px;
-          padding: 12px;
-          align-items: flex-end;
-          border-top: 1px solid rgba(255, 255, 255, 0.02);
-          background: linear-gradient(180deg, rgba(255, 255, 255, 0.005), transparent);
-        }
-
-        textarea {
-          flex: 1;
-          resize: none;
-          min-height: 52px;
-          max-height: 220px;
-          padding: 12px;
-          border-radius: 10px;
-          background: rgba(255, 255, 255, 0.02);
-          color: var(--white);
-          border: 1px solid rgba(255, 255, 255, 0.04);
-          outline: none;
-          font-size: 14px;
-        }
-
-        textarea::placeholder {
-          color: rgba(255, 255, 255, 0.45);
-        }
-
-        textarea:focus {
-          box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.14);
-          border-color: var(--accent);
-        }
-
-        .composer-actions {
-          display: flex;
-          gap: 8px;
-          align-items: center;
-        }
-
-        .btn {
-          padding: 8px 12px;
-          border-radius: 10px;
-          background: rgba(255, 255, 255, 0.02);
-          color: var(--white);
-          border: 1px solid rgba(255, 255, 255, 0.04);
-          cursor: pointer;
-          font-weight: 600;
-        }
-
-        .btn.primary {
-          background: linear-gradient(180deg, var(--accent), var(--accent-strong));
-          color: #041025;
-          border: none;
-        }
-
-        .btn.ghost {
-          background: transparent;
-          border: 1px solid rgba(255, 255, 255, 0.03);
-        }
-
-        .btn:disabled,
-        .btn[aria-disabled="true"] {
-          opacity: 0.5;
-          cursor: default;
-        }
-
-        /* light theme overrides */
-        .theme-light {
-          --bg: #f7fafc;
-          --panel: #ffffff;
-          --muted: #6b7280;
-          --white: #081022;
-          --bubble-user: #eef2ff;
-          --bubble-assistant: #f1f5f9;
-        }
-
-        @media (max-width: 640px) {
-          .page-root {
-            padding: 12px;
-          }
-          .chat-area {
-            border-radius: 10px;
-          }
-          .avatar {
-            width: 40px;
-            height: 40px;
-          }
-          textarea {
-            min-height: 48px;
-          }
-        }
+        @media (max-width:640px) { .page-root { padding:12px; } .chat-area { border-radius:10px; } .avatar { width:40px; height:40px; } textarea { min-height:48px; } }
       `}</style>
     </div>
   );
