@@ -1,0 +1,21 @@
+.btn {
+  padding: 10px 16px;
+  border-radius: var(--radius-md);
+  border: none;
+  font-weight: 600;
+  cursor: pointer;
+  background: white;
+  color: black;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.btn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-strong);
+}
+
+.btn.secondary {
+  background: transparent;
+  color: white;
+  border: 1px solid var(--border-strong);
+}
