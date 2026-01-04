@@ -1,0 +1,17 @@
+.app {
+  display: grid;
+  grid-template-columns: 280px 1fr 260px;
+  gap: 20px;
+  padding: 24px;
+  height: 100vh;
+}
+
+.panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
