@@ -20,7 +20,7 @@ async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<str
       { role: 'user', content: userPrompt }
     ],
     temperature: 0.2,
-    max_tokens: 800
+    max_completion_tokens : 800
   }
 
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
