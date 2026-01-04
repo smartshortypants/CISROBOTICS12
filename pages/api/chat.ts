@@ -4,14 +4,13 @@ type Source = { url: string; title?: string; excerpt?: string };
 type BotResp = { role: "assistant"; text: string; sources: Source[] };
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5-mini";
 const BING_API_KEY = process.env.BING_API_KEY;
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "*";
 const OPENAI_TIMEOUT_MS = 30_000; // 30s
 
 async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<string> {
   if (!OPENAI_API_KEY) {
-    // In production we surface an error; in development return a mock response so the front-end is usable.
     if (process.env.NODE_ENV === "development") {
       console.warn("OPENAI_API_KEY missing — returning development mock response.");
       return `Mock response (development). Received prompt: ${userPrompt.slice(0, 500)}`;
@@ -19,7 +18,6 @@ async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<str
     throw new Error("Missing OPENAI_API_KEY");
   }
 
-  // Build request body with correct parameter name (max_tokens)
   const body = {
     model: OPENAI_MODEL,
     messages: [
@@ -30,7 +28,6 @@ async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<str
     max_tokens: 800,
   };
 
-  // Timeout using AbortController
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), OPENAI_TIMEOUT_MS);
 
@@ -54,9 +51,11 @@ async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<str
 
     const data = await res.json();
 
-    // Robust extraction: some responses have choices[0].message.content, others might have choices[0].text
     const assistant =
-      data?.choices?.[0]?.message?.content ?? data?.choices?.[0]?.text ?? data?.choices?.[0]?.output?.[0]?.content ?? "";
+      data?.choices?.[0]?.message?.content ??
+      data?.choices?.[0]?.text ??
+      data?.choices?.[0]?.output?.[0]?.content ??
+      "";
 
     return typeof assistant === "string" ? assistant : JSON.stringify(assistant);
   } catch (err: any) {
@@ -107,19 +106,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return;
     }
 
-    const { query } = req.body || {};
-    if (!query || typeof query !== "string") {
-      res.status(400).json({ error: "Missing query" });
+    // Accept either prompt (from client) or query (legacy)
+    const prompt = (req.body && (req.body.prompt ?? req.body.query)) || "";
+    if (!prompt || typeof prompt !== "string") {
+      res.status(400).json({ error: "Missing prompt" });
       return;
     }
 
-    // Optional live web search (if BING_API_KEY provided)
-    const webResults = await callBing(query);
+    // Optional web search
+    const webResults = await callBing(prompt);
 
     const systemPrompt =
       "You are ArcheoHub, a helpful assistant. When given web search results, use them to answer and explicitly cite which URLs you used. Keep answers concise and factual.";
 
-    let userPrompt: string = query;
+    let userPrompt: string = prompt;
 
     if (webResults.length > 0) {
       const formatted = webResults
@@ -127,7 +127,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           return `Result ${i + 1}:\nTitle: ${w.title}\nURL: ${w.url}\nSnippet: ${w.excerpt}`;
         })
         .join("\n\n");
-      userPrompt = `Use the following web search results to answer the question and cite sources from them where relevant:\n\n${formatted}\n\nQuestion: ${query}`;
+      userPrompt = `Use the following web search results to answer the question and cite sources from them where relevant:\n\n${formatted}\n\nQuestion: ${prompt}`;
     }
 
     const assistantText = await callOpenAI(systemPrompt, userPrompt);
