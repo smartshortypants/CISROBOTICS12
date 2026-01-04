@@ -24,8 +24,8 @@ async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<str
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
     ],
-    temperature: 0.2,
-    max_tokens: 800,
+    temperature: 1,
+    max_completion_tokens: 800,
   };
 
   const controller = new AbortController();
