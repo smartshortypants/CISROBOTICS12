@@ -1,20 +1,22 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import axios from "axios";
+import { useRouter } from "next/router";
+
+/**
+ * ArcheoHub Chat page — archaeologist persona, deeper answers, structured rendering
+ *
+ * Drop into pages/chat.tsx
+ */
 
 type Role = "user" | "assistant";
-
-type Source = {
-  url: string;
-  title?: string;
-  excerpt?: string;
-};
-
+type Source = { url: string; title?: string; excerpt?: string };
 type Message = {
   id: string;
   role: Role;
   text: string;
+  structured?: Record<string, string>; // parsed sections if assistant returns headings
   sources?: Source[];
-  ts?: string; // ISO timestamp
+  ts?: string;
   error?: boolean;
 };
 
@@ -24,13 +26,14 @@ const USER_AVATAR = "🧑";
 function uid(prefix = "") {
   return prefix + Math.random().toString(36).slice(2, 9);
 }
-
+function nowISO() {
+  return new Date().toISOString();
+}
 function formatTime(iso?: string) {
   if (!iso) return "";
   const d = new Date(iso);
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
-
 function getDomain(url: string) {
   try {
     const u = new URL(url);
@@ -39,7 +42,6 @@ function getDomain(url: string) {
     return url;
   }
 }
-
 async function copyToClipboard(text: string) {
   try {
     await navigator.clipboard.writeText(text);
@@ -49,81 +51,154 @@ async function copyToClipboard(text: string) {
   }
 }
 
-export default function Chat(): JSX.Element {
+/** Try to parse sections from assistant text using headings like:
+ * ### Summary
+ * ### Context
+ * ### Methods
+ * ### Interpretation
+ * ### Sources
+ *
+ * Returns a map of section -> content
+ */
+function parseStructuredSections(text: string) {
+  // normalize various heading styles
+  const lines = text.split("\n");
+  const sections: Record<string, string> = {};
+  let current: string | null = null;
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i].trim();
+    const headingMatch = raw.match(/^#{1,3}\s*(.+)/); // markdown headings
+    if (headingMatch) {
+      current = headingMatch[1].trim();
+      sections[current] = "";
+      continue;
+    }
+    // also accept "SUMMARY:" or "Summary -"
+    const colonHeading = raw.match(/^([A-Za-z ]{3,40})\s*[:\-–—]\s*$/) || raw.match(/^([A-Za-z ]{3,40})\s*[:\-–—]\s*(.*)$/);
+    if (colonHeading) {
+      const key = colonHeading[1].trim();
+      current = key;
+      sections[current] = (colonHeading[2] || "").trim();
+      continue;
+    }
+    if (current) {
+      sections[current] += (sections[current].length ? "\n" : "") + lines[i];
+    }
+  }
+  return Object.keys(sections).length ? sections : null;
+}
+
+/** Build a system prompt tailored to persona/depth/tone */
+function buildSystemPrompt(persona: string, depth: number, tone: string, extraContext?: string) {
+  const base = [
+    `You are an expert archaeologist and historian (persona: ${persona}).`,
+    `Respond with academic rigor, observational clarity, and accessible explanation.`,
+    `Structure long answers with labeled sections where appropriate (e.g. Summary, Context, Methods, Interpretation, Sources).`,
+    `When possible, provide concise citations/sources and short excerpts from sources.`,
+    `Depth level: ${depth} (1 = short answer, 5 = deep multi-paragraph analysis).`,
+    `Tone: ${tone}.`,
+  ];
+  if (extraContext && extraContext.trim()) {
+    base.push(`Context for this session: ${extraContext}`);
+  }
+  base.push(`If the user requests sources, include an array of sources with URL, title, and a one-line excerpt where possible.`);
+  base.push(`Always prefer accuracy over inventing details; if uncertain, clearly state uncertainty and suggest next steps for research.`);
+  return base.join(" ");
+}
+
+export default function ChatPage(): JSX.Element {
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // UI controls
+  const [persona, setPersona] = useState<"Field Archaeologist" | "Museum Curator" | "Archaeological Theorist">("Field Archaeologist");
+  const [depth, setDepth] = useState<number>(4); // 1..5
+  const [tone, setTone] = useState<"Formal" | "Accessible">("Formal");
+  const [includeSources, setIncludeSources] = useState<boolean>(true);
+  const [extraContext, setExtraContext] = useState<string>(""); // advanced context
+
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
-
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
-  // Auto-scroll to bottom when messages change
   useEffect(() => {
-    const el = messagesRef.current;
-    if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
-  // Auto-focus input on mount
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
+
+  // Example starter prompts
+  const EXAMPLES = [
+    "What can the pottery styles at a Bronze Age site tell us about trade networks?",
+    "Explain the likely sequence of activity at a burial mound with stratified layers.",
+    "How do archaeologists use soil chemistry to detect ancient habitation?",
+  ];
 
   const send = useCallback(async () => {
     const text = query.trim();
     if (!text || loading) return;
     setErrorMsg(null);
 
-    // create user message
-    const userMsg: Message = {
-      id: uid("u_"),
-      role: "user",
-      text,
-      ts: new Date().toISOString(),
-    };
-
-    // optimistic assistant placeholder
-    const placeholderMsg: Message = {
-      id: uid("a_"),
-      role: "assistant",
-      text: "…",
-      ts: new Date().toISOString(),
-    };
+    const userMsg: Message = { id: uid("u_"), role: "user", text, ts: nowISO() };
+    const placeholderMsg: Message = { id: uid("a_"), role: "assistant", text: "…", ts: nowISO() };
 
     setMessages((m) => [...m, userMsg, placeholderMsg]);
     setQuery("");
     setLoading(true);
 
     try {
+      const systemPrompt = buildSystemPrompt(persona, depth, tone, extraContext);
       const url = API_BASE ? `${API_BASE}/api/chat` : "/api/chat";
-      const res = await axios.post(url, { query: text });
 
-      // expected shape: { role: 'assistant', text: '...', sources: [...] }
+      // payload includes options your backend can use to prime the model
+      const payload = {
+        query: text,
+        options: {
+          systemPrompt,
+          depth,
+          tone,
+          includeSources,
+        },
+      };
+
+      const res = await axios.post(url, payload, { timeout: 120000 });
+
+      // Expect res.data to be either:
+      // { text: string, sources?: Source[] }
+      // or a plain string.
       const assistantPayload = res.data;
+      let assistantText = "";
+      let assistantSources: Source[] = [];
+
+      if (typeof assistantPayload === "string") {
+        assistantText = assistantPayload;
+      } else if (assistantPayload?.text) {
+        assistantText = assistantPayload.text;
+        if (Array.isArray(assistantPayload.sources)) assistantSources = assistantPayload.sources;
+      } else {
+        assistantText = JSON.stringify(assistantPayload);
+      }
+
+      // Try parse structured sections if present
+      const structured = parseStructuredSections(assistantText) || undefined;
+
       const assistantMsg: Message = {
         id: uid("a_"),
         role: "assistant",
-        text:
-          typeof assistantPayload === "string"
-            ? assistantPayload
-            : assistantPayload?.text ?? "No response text.",
-        sources: Array.isArray(assistantPayload?.sources)
-          ? assistantPayload.sources
-          : [],
-        ts: new Date().toISOString(),
+        text: assistantText,
+        structured,
+        sources: assistantSources,
+        ts: nowISO(),
       };
 
-      // replace last placeholder with real assistant message
-      setMessages((prev) => {
-        // drop last placeholder (the one with text "…")
-        const withoutPlaceholder = prev.filter((p) => p.id !== placeholderMsg.id);
-        return [...withoutPlaceholder, assistantMsg];
-      });
+      setMessages((prev) => prev.filter((p) => p.id !== placeholderMsg.id).concat(assistantMsg));
     } catch (err: any) {
-      console.error("Chat send error:", err);
+      console.error("Chat error:", err);
       const serverMsg =
         err?.response?.data?.error ||
         err?.response?.data?.message ||
@@ -133,24 +208,19 @@ export default function Chat(): JSX.Element {
       const assistantMsg: Message = {
         id: uid("a_"),
         role: "assistant",
-        text: serverMsg,
+        text: String(serverMsg),
         sources: [],
-        ts: new Date().toISOString(),
+        ts: nowISO(),
         error: true,
       };
 
-      setMessages((prev) => {
-        const withoutPlaceholder = prev.filter((p) => p.id !== placeholderMsg.id);
-        return [...withoutPlaceholder, assistantMsg];
-      });
-
+      setMessages((prev) => prev.filter((p) => p.id !== placeholderMsg.id).concat(assistantMsg));
       setErrorMsg(typeof serverMsg === "string" ? serverMsg : "Request failed");
     } finally {
       setLoading(false);
-      // ensure input focus returns for convenience
       inputRef.current?.focus();
     }
-  }, [API_BASE, loading, query]);
+  }, [API_BASE, depth, extraContext, includeSources, loading, persona, query, tone]);
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -159,457 +229,303 @@ export default function Chat(): JSX.Element {
     }
   }
 
+  // Export conversation as plain text
+  async function exportConversation() {
+    const lines: string[] = [];
+    for (const m of messages) {
+      const who = m.role === "user" ? "User" : "ArcheoHub (Assistant)";
+      lines.push(`${who} [${formatTime(m.ts)}]:`);
+      lines.push(m.text);
+      lines.push("");
+      if (m.sources?.length) {
+        lines.push("Sources:");
+        for (const s of m.sources) lines.push(`- ${s.title || s.url} — ${s.url}`);
+        lines.push("");
+      }
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `archeohub-conversation-${new Date().toISOString()}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
   return (
-    <div className="container">
-      <header className="header" role="banner">
-        <div>
-          <h1 className="title">ArcheoHub</h1>
-          <p className="subtitle">Monochrome demo — answers may include live web sources.</p>
+    <div className="page">
+      <header className="page-header">
+        <div className="left">
+          <button className="back" onClick={() => router.push("/")}>← Back</button>
+          <h1>ArcheoHub — Archaeologist Chat</h1>
+          <p className="muted">Ask questions; get in-depth, structured archaeological answers.</p>
+        </div>
+
+        <div className="controls" aria-hidden>
+          <label className="control-row">
+            <span>Persona</span>
+            <select value={persona} onChange={(e) => setPersona(e.target.value as any)}>
+              <option>Field Archaeologist</option>
+              <option>Museum Curator</option>
+              <option>Archaeological Theorist</option>
+            </select>
+          </label>
+
+          <label className="control-row">
+            <span>Depth</span>
+            <input type="range" min={1} max={5} value={depth} onChange={(e) => setDepth(Number(e.target.value))} />
+            <span className="small muted"> {depth}</span>
+          </label>
+
+          <label className="control-row">
+            <span>Tone</span>
+            <select value={tone} onChange={(e) => setTone(e.target.value as any)}>
+              <option>Formal</option>
+              <option>Accessible</option>
+            </select>
+          </label>
+
+          <label className="control-row">
+            <input id="srcToggle" type="checkbox" checked={includeSources} onChange={() => setIncludeSources((s) => !s)} />
+            <span>Include sources</span>
+          </label>
+
+          <button className="small-btn" onClick={() => {
+            // insert an advanced context example
+            setExtraContext("User is a late medieval ceramicist seeking technical interpretation of glazes.");
+            alert("Advanced context set to an example. Edit as needed.");
+          }}>
+            Quick context example
+          </button>
+
+          <button className="small-btn" onClick={exportConversation}>Export convo</button>
         </div>
       </header>
 
-      <main className="chat-shell" role="region" aria-label="ArcheoHub chat">
-        <div className="messages" ref={messagesRef}>
-          {messages.length === 0 && (
-            <div className="empty">
-              <div className="empty-title">Welcome to ArcheoHub</div>
-              <div className="empty-sub">Ask about artifacts, excavations, or history.</div>
-            </div>
-          )}
+      <main className="chat-area" role="region" aria-label="ArcheoHub chat">
+        <aside className="sidebar">
+          <section className="examples">
+            <h3>Examples</h3>
+            <ul>
+              {EXAMPLES.map((ex, i) => (
+                <li key={i}>
+                  <button className="example" onClick={() => { setQuery(ex); inputRef.current?.focus(); }}>{ex}</button>
+                </li>
+              ))}
+            </ul>
+            <h4 className="muted">Advanced context</h4>
+            <textarea
+              value={extraContext}
+              onChange={(e) => setExtraContext(e.target.value)}
+              placeholder="Optional: give the assistant background (site, period, dataset)"
+              rows={4}
+            />
+          </section>
+        </aside>
 
-          {messages.map((m) => {
-            const isUser = m.role === "user";
-            return (
-              <article
-                key={m.id}
-                className={`msg-row ${isUser ? "user" : "assistant"} ${m.error ? "error" : ""}`}
-                aria-live={isUser ? "polite" : "assertive"}
-              >
-                {!isUser && <div className="avatar" aria-hidden>{ASSISTANT_AVATAR}</div>}
+        <section className="chat-shell">
+          <div className="messages" ref={messagesRef}>
+            {messages.length === 0 && (
+              <div className="welcome">
+                <h2>Welcome — ArcheoHub</h2>
+                <p className="muted">Ask an archaeological question or pick an example on the left. Increase depth for longer, more technical answers.</p>
+              </div>
+            )}
 
-                <div className="bubble-wrap">
-                  <div className="bubble">
-                    <div className="bubble-top">
-                      <div className="bubble-text" style={{ whiteSpace: "pre-wrap" }}>
-                        {m.text}
-                      </div>
-                      <div className="meta">
-                        <span className="time">{formatTime(m.ts)}</span>
-                        {m.error && <span className="err-tag">error</span>}
-                      </div>
+            {messages.map((m) => {
+              const isUser = m.role === "user";
+              return (
+                <article key={m.id} className={`msg ${isUser ? "user" : "assistant"} ${m.error ? "error" : ""}`}>
+                  {!isUser && <div className="avatar" aria-hidden>{ASSISTANT_AVATAR}</div>}
+
+                  <div className="msg-body">
+                    <div className="msg-header">
+                      <strong>{isUser ? "You" : "Archaeologist"}</strong>
+                      <span className="time">{formatTime(m.ts)}</span>
                     </div>
 
-                    {m.sources && m.sources.length > 0 && (
-                      <div className="sources" role="group" aria-label="Sources">
-                        <div className="sources-title">Sources</div>
-                        <ul className="sources-list">
-                          {m.sources.map((s, idx) => (
-                            <li key={idx} className="source-item">
-                              <div className="source-left">
-                                <div className="source-domain">{getDomain(s.url)}</div>
-                                <a
-                                  className="source-link"
-                                  href={s.url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  title={s.title || s.url}
-                                >
-                                  {s.title || s.url}
-                                </a>
-                                {s.excerpt && <div className="source-excerpt">{s.excerpt}</div>}
-                              </div>
+                    {/* If the assistant returned structured sections, render them as panels */}
+                    {m.structured ? (
+                      <div className="sections">
+                        {Object.entries(m.structured).map(([k, v]) => (
+                          <div key={k} className="section">
+                            <div className="section-title">{k}</div>
+                            <div className="section-body">{v}</div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text" style={{ whiteSpace: "pre-wrap" }}>{m.text}</div>
+                    )}
 
+                    {/* Sources */}
+                    {m.sources && m.sources.length > 0 && (
+                      <div className="sources">
+                        <div className="sources-title">Sources</div>
+                        <ul>
+                          {m.sources.map((s, idx) => (
+                            <li key={idx} className="source">
+                              <div className="source-left">
+                                <div className="domain">{getDomain(s.url)}</div>
+                                <a href={s.url} target="_blank" rel="noreferrer" className="link">{s.title || s.url}</a>
+                                {s.excerpt && <div className="excerpt">{s.excerpt}</div>}
+                              </div>
                               <div className="source-actions">
-                                <button
-                                  className="action"
-                                  aria-label={`Open ${getDomain(s.url)}`}
-                                  onClick={() => window.open(s.url, "_blank", "noopener")}
-                                  title="Open link"
-                                >
-                                  🔗
-                                </button>
-                                <button
-                                  className="action"
-                                  aria-label={`Copy link ${s.url}`}
-                                  onClick={async () => {
-                                    const ok = await copyToClipboard(s.url);
-                                    if (ok) {
-                                      // quick visual feedback
-                                      (document.activeElement as HTMLElement | null)?.blur();
-                                      alert("Copied source link to clipboard");
-                                    } else {
-                                      alert("Failed to copy — try manually");
-                                    }
-                                  }}
-                                  title="Copy link"
-                                >
-                                  📋
-                                </button>
+                                <button className="tiny" onClick={() => window.open(s.url, "_blank", "noopener")}>🔗</button>
+                                <button className="tiny" onClick={async () => {
+                                  const ok = await copyToClipboard(s.url);
+                                  alert(ok ? "Copied link" : "Copy failed");
+                                }}>📋</button>
                               </div>
                             </li>
                           ))}
                         </ul>
-                        <div className="sources-actions">
-                          <button
-                            className="small-btn"
-                            onClick={() => {
-                              // open all
-                              m.sources?.forEach((s) => window.open(s.url, "_blank", "noopener"));
-                            }}
-                          >
-                            Open all
-                          </button>
-                          <button
-                            className="small-btn"
-                            onClick={async () => {
-                              const text = (m.sources || []).map((s) => `${s.title || s.url} — ${s.url}`).join("\n");
-                              const ok = await copyToClipboard(text);
-                              alert(ok ? "Copied all sources" : "Failed to copy sources");
-                            }}
-                          >
-                            Copy all
-                          </button>
-                        </div>
                       </div>
                     )}
                   </div>
-                </div>
 
-                {isUser && <div className="avatar" aria-hidden>{USER_AVATAR}</div>}
-              </article>
-            );
-          })}
-        </div>
+                  {isUser && <div className="avatar" aria-hidden>{USER_AVATAR}</div>}
+                </article>
+              );
+            })}
+          </div>
 
-        <div className="input-bar">
-          <input
-            ref={inputRef}
-            className="input"
-            placeholder="Ask ArcheoHub..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={onKeyDown}
-            disabled={loading}
-            aria-label="Ask ArcheoHub"
-            spellCheck={false}
-          />
-          <button
-            className="btn"
-            onClick={() => send()}
-            disabled={loading || !query.trim()}
-            aria-label="Send"
-          >
-            {loading ? "… " : "Send"}
-          </button>
-        </div>
+          <div className="input-bar">
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={onKeyDown}
+              placeholder="Ask an archaeological question (e.g. 'What does pottery X indicate about chronology?')"
+              aria-label="Ask ArcheoHub"
+              disabled={loading}
+            />
+            <button className="send" onClick={() => send()} disabled={loading || !query.trim()}>{loading ? "…" : "Send"}</button>
+          </div>
+        </section>
       </main>
 
-      <div className="footer-note" role="status" aria-live="polite">
-        {errorMsg ? <span className="error-note">Error: {errorMsg}</span> : null}
-        <span className="tip">Tip: check DevTools Network tab if requests fail.</span>
-      </div>
-
       <style jsx>{`
-        .container {
-          max-width: 980px;
-          margin: 1.4rem auto;
-          padding: 1rem;
+        :root {
+          --bg: #0b0b0d;
+          --panel: #121215;
+          --muted: #9a9aa0;
+          --border: #222227;
+          --accent: #e9e9ea;
+        }
+        .page {
+          background: var(--bg);
+          color: var(--accent);
+          min-height: 100vh;
           font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
-          color: #fff;
+          padding: 1rem;
         }
 
-        .header {
+        .page-header {
           display: flex;
-          align-items: center;
           justify-content: space-between;
-          margin-bottom: 0.6rem;
+          gap: 1rem;
+          max-width: 1100px;
+          margin: 0 auto 1rem;
+          align-items: flex-start;
         }
 
-        .title {
-          margin: 0;
-          font-size: 1.25rem;
-          font-weight: 600;
-        }
+        .left { flex: 1; }
+        .back { background: transparent; border: none; color: var(--muted); cursor: pointer; margin-right: 0.6rem; }
+        h1 { margin: 0 0 6px 0; font-size: 1.2rem; }
+        .muted { color: var(--muted); font-size: 0.95rem; }
 
-        .subtitle {
-          margin: 0.15rem 0 0;
-          color: #9a9aa0;
-          font-size: 0.9rem;
-        }
-
-        .chat-shell {
-          background: #0b0b0d;
-          border-radius: 12px;
-          border: 1px solid #222227;
-          overflow: hidden;
+        .controls {
+          width: 320px;
           display: flex;
           flex-direction: column;
-          gap: 12px;
+          gap: 0.6rem;
+          align-items: stretch;
+        }
+
+        .control-row { display:flex; align-items:center; gap:0.6rem; justify-content: space-between; }
+        select, input[type="range"], textarea { background: #0d0d0e; color: var(--accent); border: 1px solid var(--border); padding: 6px 8px; border-radius: 8px; }
+        .small-btn { background: #111; color: var(--accent); border: 1px solid var(--border); padding: 8px; border-radius: 8px; cursor: pointer; }
+
+        .chat-area {
+          max-width: 1100px;
+          margin: 0 auto;
+          display: grid;
+          grid-template-columns: 320px 1fr;
+          gap: 1rem;
+        }
+
+        .sidebar { background: transparent; }
+        .examples h3 { margin: 0 0 6px 0; }
+        .examples ul { list-style: none; padding: 0; margin: 0 0 8px 0; display:flex; flex-direction: column; gap: 8px; }
+        .example { background: #0f0f10; color: var(--accent); border: 1px solid var(--border); padding: 8px; border-radius: 8px; text-align: left; cursor: pointer; }
+
+        .chat-shell {
+          background: var(--panel);
+          border-radius: 12px;
+          border: 1px solid var(--border);
+          display: flex;
+          flex-direction: column;
           height: 72vh;
-          min-height: 420px;
+          min-height: 500px;
+          overflow: hidden;
         }
 
         .messages {
           padding: 16px;
           overflow: auto;
           flex: 1;
-        }
-
-        .empty {
-          text-align: center;
-          color: #9a9aa0;
-          margin-top: 40px;
-        }
-
-        .empty-title {
-          font-weight: 600;
-          margin-bottom: 6px;
-        }
-
-        .msg-row {
-          display: flex;
-          gap: 12px;
-          align-items: flex-end;
-          margin-bottom: 12px;
-        }
-
-        .msg-row.assistant {
-          justify-content: flex-start;
-        }
-        .msg-row.user {
-          justify-content: flex-end;
-        }
-
-        .avatar {
-          width: 36px;
-          height: 36px;
-          display: inline-grid;
-          place-items: center;
-          background: #111;
-          border: 1px solid #1f1f23;
-          border-radius: 10px;
-          font-size: 18px;
-        }
-
-        .bubble-wrap {
-          max-width: 75%;
           display: flex;
           flex-direction: column;
-          gap: 8px;
-        }
-
-        .bubble {
-          background: #111214;
-          border: 1px solid #222227;
-          padding: 12px 14px;
-          border-radius: 12px;
-          color: #e9e9ea;
-          box-shadow: 0 1px 0 rgba(255, 255, 255, 0.02) inset;
-        }
-
-        .bubble-top {
-          display: flex;
-          justify-content: space-between;
           gap: 12px;
-          align-items: start;
         }
 
-        .bubble-text {
-          white-space: pre-wrap;
-          word-break: break-word;
-          font-size: 0.98rem;
-          color: #eaeaea;
-        }
+        .welcome { text-align: center; color: var(--muted); }
 
-        .meta {
-          font-size: 11px;
-          color: #9a9aa0;
-          display: flex;
-          gap: 8px;
-          align-items: center;
-        }
+        .msg { display: flex; gap: 12px; align-items: flex-start; }
+        .msg.user { justify-content: flex-end; }
+        .avatar { width: 40px; height: 40px; border-radius: 8px; background: #111; display:grid; place-items:center; font-size: 18px; border:1px solid var(--border); }
 
-        .time {
-          color: #8f8f95;
-        }
+        .msg-body { max-width: 78%; background: #0f0f10; border: 1px solid var(--border); padding: 12px; border-radius: 10px; }
+        .msg-header { display:flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
+        .time { color: var(--muted); font-size: 12px; }
 
-        .err-tag {
-          background: #2f1111;
-          color: #ffb5b5;
-          padding: 2px 6px;
-          border-radius: 8px;
-          font-size: 11px;
-        }
+        .sections { display:flex; flex-direction: column; gap: 8px; }
+        .section { background: #0b0b0d; padding: 8px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.02); }
+        .section-title { font-weight: 700; margin-bottom: 6px; }
+        .section-body { color: var(--accent); white-space: pre-wrap; }
 
-        .sources {
-          margin-top: 10px;
-          background: #0f0f10;
-          border: 1px solid #1b1b1e;
-          padding: 10px;
-          border-radius: 10px;
-        }
+        .text { white-space: pre-wrap; color: var(--accent); }
 
-        .sources-title {
-          font-weight: 700;
-          color: #eaeaea;
-          margin-bottom: 8px;
-        }
+        .sources { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 10px; }
+        .sources-title { font-weight: 700; margin-bottom: 6px; color: var(--accent); }
+        .source { display:flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px dashed rgba(255,255,255,0.02); }
+        .source:last-child { border-bottom: none; }
+        .domain { color: var(--muted); font-size: 12px; }
+        .link { color: var(--accent); font-weight:600; text-decoration: none; }
+        .excerpt { color: var(--muted); font-size: 13px; margin-top: 4px; }
 
-        .sources-list {
-          list-style: none;
-          padding: 0;
-          margin: 0;
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-        }
+        .source-actions { display:flex; gap: 8px; }
+        .tiny { background: transparent; color: var(--accent); border: 1px solid var(--border); padding: 6px; border-radius: 6px; cursor: pointer; }
 
-        .source-item {
-          display: flex;
-          justify-content: space-between;
-          gap: 12px;
-          align-items: flex-start;
-          border-top: 1px dashed #19191b;
-          padding-top: 8px;
-        }
+        .input-bar { display:flex; gap: 8px; padding: 12px; border-top: 1px solid var(--border); background: linear-gradient(180deg, rgba(255,255,255,0.01), transparent); }
+        input[placeholder], textarea[placeholder] { color: rgba(255,255,255,0.6); }
 
-        .source-item:first-child {
-          border-top: none;
-          padding-top: 0;
-        }
+        input[type="text"], input[type="search"], input[type="email"], input[type="url"] { background: #0d0d0e; border: 1px solid var(--border); color: var(--accent); padding: 10px 12px; border-radius: 8px; flex: 1; }
+        .send { min-width: 96px; background: var(--accent); color: #0b0b0d; border: none; padding: 10px 12px; border-radius: 8px; cursor: pointer; font-weight: 700; }
+        .send:disabled { opacity: 0.5; cursor: not-allowed; }
 
-        .source-left {
-          flex: 1;
-          min-width: 0;
-        }
+        .muted { color: var(--muted); }
+        .small { font-size: 12px; }
 
-        .source-domain {
-          font-size: 12px;
-          color: #9a9aa0;
-          margin-bottom: 4px;
-        }
-
-        .source-link {
-          display: block;
-          color: #eaeaea;
-          text-decoration: none;
-          font-weight: 600;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-          max-width: 560px;
-        }
-
-        .source-excerpt {
-          margin-top: 6px;
-          color: #9a9aa0;
-          font-size: 13px;
-        }
-
-        .source-actions {
-          display: flex;
-          flex-direction: column;
-          gap: 6px;
-        }
-
-        .action {
-          background: transparent;
-          border: 1px solid #222227;
-          color: #eaeaea;
-          width: 36px;
-          height: 36px;
-          border-radius: 8px;
-          cursor: pointer;
-          display: inline-grid;
-          place-items: center;
-        }
-
-        .action:hover {
-          transform: translateY(-2px);
-        }
-
-        .sources-actions {
-          display: flex;
-          gap: 8px;
-          margin-top: 10px;
-        }
-
-        .small-btn {
-          background: #111;
-          color: #eaeaea;
-          border: 1px solid #202023;
-          padding: 6px 10px;
-          border-radius: 8px;
-          cursor: pointer;
-          font-size: 13px;
-        }
-
-        .input-bar {
-          display: flex;
-          gap: 8px;
-          padding: 12px;
-          border-top: 1px solid #17171a;
-          background: linear-gradient(180deg, rgba(255,255,255,0.01), transparent);
-        }
-
-        .input {
-          flex: 1;
-          padding: 12px 14px;
-          border-radius: 10px;
-          border: 1px solid #1f1f23;
-          background: #0d0d0e;
-          color: #ffffff;
-          outline: none;
-        }
-
-        .input:disabled {
-          opacity: 0.6;
-        }
-
-        .btn {
-          min-width: 84px;
-          padding: 10px 12px;
-          border-radius: 10px;
-          border: 0;
-          background: #e9e9ea;
-          color: #060607;
-          font-weight: 600;
-          cursor: pointer;
-        }
-
-        .btn:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-
-        .footer-note {
-          margin-top: 8px;
-          color: #9a9aa0;
-          font-size: 13px;
-          display: flex;
-          justify-content: space-between;
-          gap: 12px;
-          align-items: center;
-        }
-
-        .error-note {
-          color: #ffb5b5;
-        }
-
-        @media (max-width: 640px) {
-          .container {
-            margin: 0.6rem;
-            padding: 0.6rem;
-          }
-          .chat-shell {
-            height: 72vh;
-          }
-          .bubble-wrap {
-            max-width: 100%;
-          }
+        @media (max-width: 980px) {
+          .chat-area { grid-template-columns: 1fr; }
+          .controls { width: 100%; order: 2; display:flex; gap:8px; flex-wrap:wrap; }
+          .sidebar { order: 1; }
         }
       `}</style>
     </div>
   );
 }
-
