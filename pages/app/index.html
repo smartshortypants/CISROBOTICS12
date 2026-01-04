@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ArcheoHub</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    /* General */
+    body {
+      font-family: 'Inter', sans-serif;
+      margin: 0;
+      background-color: #000;
+      color: #fff;
+      line-height: 1.6;
+    }
+    a { text-decoration: none; color: inherit; }
+
+    /* Header */
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1rem 2rem;
+      background-color: #111;
+      border-bottom: 1px solid #444;
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+    }
+    header h1 { font-size: 1.6rem; font-weight: 700; }
+    header nav a {
+      margin-left: 1.5rem;
+      font-weight: 600;
+      transition: color 0.2s;
+    }
+    header nav a:hover { color: #aaa; }
+
+    /* Hero */
+    .hero {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 8rem 2rem;
+      background: url('https://images.unsplash.com/photo-1531266752216-45d27f18768d?auto=format&fit=crop&w=1920&q=80') center/cover no-repeat;
+      position: relative;
+    }
+    .hero::after {
+      content: "";
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background-color: rgba(0,0,0,0.7);
+    }
+    .hero-content {
+      position: relative;
+      max-width: 800px;
+      z-index: 1;
+    }
+    .hero h2 {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+    }
+    .hero p {
+      font-size: 1.2rem;
+      margin-bottom: 2rem;
+      color: #ccc;
+    }
+    .hero button {
+      padding: 0.8rem 2rem;
+      font-size: 1rem;
+      background-color: #fff;
+      color: #000;
+      border: none;
+      font-weight: 600;
+      cursor: pointer;
+      transition: 0.3s;
+    }
+    .hero button:hover { background-color: #ddd; }
+
+    /* Features */
+    .features {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 2rem;
+      padding: 4rem 2rem;
+    }
+    .feature-card {
+      background-color: #111;
+      border: 1px solid #444;
+      padding: 2rem;
+      border-radius: 12px;
+      width: 260px;
+      text-align: center;
+      transition: transform 0.3s, border-color 0.3s;
+    }
+    .feature-card:hover {
+      transform: translateY(-10px);
+      border-color: #888;
+    }
+    .feature-card i {
+      font-size: 2rem;
+      margin-bottom: 1rem;
+      color: #fff;
+    }
+    .feature-card h3 {
+      margin-bottom: 0.8rem;
+      font-size: 1.3rem;
+    }
+    .feature-card p { color: #aaa; font-size: 0.95rem; }
+
+    /* Footer */
+    footer {
+      text-align: center;
+      padding: 2rem;
+      border-top: 1px solid #444;
+      color: #aaa;
+      font-size: 0.9rem;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .features { flex-direction: column; align-items: center; }
+      .hero h2 { font-size: 2.2rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header>
+    <h1>ArcheoHub</h1>
+    <nav>
+      <a href="#">Home</a>
+      <a href="#">Features</a>
+      <a href="#">About</a>
+      <a href="#">Contact</a>
+    </nav>
+  </header>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="hero-content">
+      <h2>Discover the Past, Shape the Future</h2>
+      <p>ArcheoHub is your black-and-white portal to archaeology, history, and cultural insights.</p>
+      <button>Get Started</button>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section class="features">
+    <div class="feature-card">
+      <i class="fas fa-landmark"></i>
+      <h3>Artifacts</h3>
+      <p>Explore detailed information on artifacts from around the world.</p>
+    </div>
+    <div class="feature-card">
+      <i class="fas fa-hat-cowboy"></i>
+      <h3>Excavations</h3>
+      <p>Follow excavation reports and findings from active archaeological sites.</p>
+    </div>
+    <div class="feature-card">
+      <i class="fas fa-book-open"></i>
+      <h3>Research</h3>
+      <p>Access scholarly articles and research papers on historical studies.</p>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    &copy; 2026 ArcheoHub. All rights reserved.
+  </footer>
+
+</body>
+</html>
