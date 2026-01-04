@@ -37,6 +37,60 @@ const ARTIFACTS = [
     image:
       "https://upload.wikimedia.org/wikipedia/commons/1/1e/Venus_of_Willendorf_01.jpg",
   },
+  {
+    id: 5,
+    name: "Sutton Hoo Helmet",
+    era: "Early Medieval",
+    description:
+      "Decorated Anglo-Saxon helmet found in an elite burial ship in England.",
+    image:
+      "https://upload.wikimedia.org/wikipedia/commons/3/3a/Sutton_Hoo_helmet_front.jpg",
+  },
+  {
+    id: 6,
+    name: "Dead Sea Scrolls",
+    era: "Second Temple Period",
+    description:
+      "Ancient Jewish manuscripts discovered in the Qumran Caves, invaluable for biblical studies.",
+    image:
+      "https://upload.wikimedia.org/wikipedia/commons/2/23/Great_Isaiah_Scroll.jpg",
+  },
+  {
+    id: 7,
+    name: "Lascaux Cave Paintings",
+    era: "Upper Paleolithic",
+    description:
+      "Complex cave paintings in southwestern France depicting animals and symbols.",
+    image:
+      "https://upload.wikimedia.org/wikipedia/commons/7/78/Lascaux_05.jpg",
+  },
+  {
+    id: 8,
+    name: "Standard of Ur",
+    era: "Early Dynastic Mesopotamia",
+    description:
+      "A wooden box inlaid with mosaics showing scenes of war and peace.",
+    image:
+      "https://upload.wikimedia.org/wikipedia/commons/6/68/Standard_of_Ur_British_Museum.jpg",
+  },
+  {
+    id: 9,
+    name: "Olduvai Stone Tools",
+    era: "Lower Paleolithic",
+    description:
+      "Early hominin stone tools that provide insight into the origins of technology.",
+    image:
+      "https://upload.wikimedia.org/wikipedia/commons/8/80/Oldowan_tools.jpg",
+  },
+  {
+    id: 10,
+    name: "Bayeux Tapestry",
+    era: "11th Century",
+    description:
+      "An embroidered cloth depicting the events leading up to the Norman conquest of England.",
+    image:
+      "https://upload.wikimedia.org/wikipedia/commons/3/3f/Bayeux_Tapestry_scene21_Harold.jpg",
+  },
 ];
 
 export default function ArtifactsPage() {
@@ -46,8 +100,8 @@ export default function ArtifactsPage() {
     <main style={styles.container}>
       {/* Header */}
       <header style={styles.header}>
-        <button style={styles.backBtn} onClick={() => router.push("/")}>
-          ← Back
+        <button style={styles.backBtn} onClick={() => router.push("/") }>
+          [27m[0m[7m[0m[27m[0m[?25l[?25h[27m[0m[7m[0m[27m[0m[?25l[?25h[27m[0m[7m[0m[27m[0m[?25l[?25h[27m[0m[7m[0m[27m[0m[?25l[?25h← Back
         </button>
         <h1 style={styles.title}>Artifacts</h1>
         <p style={styles.subtitle}>
