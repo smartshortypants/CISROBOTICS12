@@ -4,8 +4,7 @@ import { useRouter } from "next/router";
 
 /**
  * ArcheoHub Chat page — archaeologist persona, deeper answers, structured rendering
- *
- * Drop into pages/chat.tsx
+ * (Same logic as before — only color theme changed to dark blue)
  */
 
 type Role = "user" | "assistant";
@@ -14,7 +13,7 @@ type Message = {
   id: string;
   role: Role;
   text: string;
-  structured?: Record<string, string>; // parsed sections if assistant returns headings
+  structured?: Record<string, string>;
   sources?: Source[];
   ts?: string;
   error?: boolean;
@@ -51,30 +50,21 @@ async function copyToClipboard(text: string) {
   }
 }
 
-/** Try to parse sections from assistant text using headings like:
- * ### Summary
- * ### Context
- * ### Methods
- * ### Interpretation
- * ### Sources
- *
- * Returns a map of section -> content
- */
 function parseStructuredSections(text: string) {
-  // normalize various heading styles
   const lines = text.split("\n");
   const sections: Record<string, string> = {};
   let current: string | null = null;
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i].trim();
-    const headingMatch = raw.match(/^#{1,3}\s*(.+)/); // markdown headings
+    const headingMatch = raw.match(/^#{1,3}\s*(.+)/);
     if (headingMatch) {
       current = headingMatch[1].trim();
       sections[current] = "";
       continue;
     }
-    // also accept "SUMMARY:" or "Summary -"
-    const colonHeading = raw.match(/^([A-Za-z ]{3,40})\s*[:\-–—]\s*$/) || raw.match(/^([A-Za-z ]{3,40})\s*[:\-–—]\s*(.*)$/);
+    const colonHeading =
+      raw.match(/^([A-Za-z ]{3,40})\s*[:\-–—]\s*$/) ||
+      raw.match(/^([A-Za-z ]{3,40})\s*[:\-–—]\s*(.*)$/);
     if (colonHeading) {
       const key = colonHeading[1].trim();
       current = key;
@@ -88,7 +78,6 @@ function parseStructuredSections(text: string) {
   return Object.keys(sections).length ? sections : null;
 }
 
-/** Build a system prompt tailored to persona/depth/tone */
 function buildSystemPrompt(persona: string, depth: number, tone: string, extraContext?: string) {
   const base = [
     `You are an expert archaeologist and historian (persona: ${persona}).`,
@@ -114,7 +103,9 @@ export default function ChatPage(): JSX.Element {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // UI controls
-  const [persona, setPersona] = useState<"Field Archaeologist" | "Museum Curator" | "Archaeological Theorist">("Field Archaeologist");
+  const [persona, setPersona] = useState<
+    "Field Archaeologist" | "Museum Curator" | "Archaeological Theorist"
+  >("Field Archaeologist");
   const [depth, setDepth] = useState<number>(4); // 1..5
   const [tone, setTone] = useState<"Formal" | "Accessible">("Formal");
   const [includeSources, setIncludeSources] = useState<boolean>(true);
@@ -132,95 +123,92 @@ export default function ChatPage(): JSX.Element {
     inputRef.current?.focus();
   }, []);
 
-  // Example starter prompts
   const EXAMPLES = [
     "What can the pottery styles at a Bronze Age site tell us about trade networks?",
     "Explain the likely sequence of activity at a burial mound with stratified layers.",
     "How do archaeologists use soil chemistry to detect ancient habitation?",
   ];
 
-  const send = useCallback(async () => {
-    const text = query.trim();
-    if (!text || loading) return;
-    setErrorMsg(null);
+  const send = useCallback(
+    async () => {
+      const text = query.trim();
+      if (!text || loading) return;
+      setErrorMsg(null);
 
-    const userMsg: Message = { id: uid("u_"), role: "user", text, ts: nowISO() };
-    const placeholderMsg: Message = { id: uid("a_"), role: "assistant", text: "…", ts: nowISO() };
+      const userMsg: Message = { id: uid("u_"), role: "user", text, ts: nowISO() };
+      const placeholderMsg: Message = { id: uid("a_"), role: "assistant", text: "…", ts: nowISO() };
 
-    setMessages((m) => [...m, userMsg, placeholderMsg]);
-    setQuery("");
-    setLoading(true);
+      setMessages((m) => [...m, userMsg, placeholderMsg]);
+      setQuery("");
+      setLoading(true);
 
-    try {
-      const systemPrompt = buildSystemPrompt(persona, depth, tone, extraContext);
-      const url = API_BASE ? `${API_BASE}/api/chat` : "/api/chat";
+      try {
+        const systemPrompt = buildSystemPrompt(persona, depth, tone, extraContext);
+        const url = API_BASE ? `${API_BASE}/api/chat` : "/api/chat";
 
-      // payload includes options your backend can use to prime the model
-      const payload = {
-        query: text,
-        options: {
-          systemPrompt,
-          depth,
-          tone,
-          includeSources,
-        },
-      };
+        const payload = {
+          query: text,
+          options: {
+            systemPrompt,
+            depth,
+            tone,
+            includeSources,
+          },
+        };
 
-      const res = await axios.post(url, payload, { timeout: 120000 });
+        const res = await axios.post(url, payload, { timeout: 120000 });
 
-      // Expect res.data to be either:
-      // { text: string, sources?: Source[] }
-      // or a plain string.
-      const assistantPayload = res.data;
-      let assistantText = "";
-      let assistantSources: Source[] = [];
+        const assistantPayload = res.data;
+        let assistantText = "";
+        let assistantSources: Source[] = [];
 
-      if (typeof assistantPayload === "string") {
-        assistantText = assistantPayload;
-      } else if (assistantPayload?.text) {
-        assistantText = assistantPayload.text;
-        if (Array.isArray(assistantPayload.sources)) assistantSources = assistantPayload.sources;
-      } else {
-        assistantText = JSON.stringify(assistantPayload);
+        if (typeof assistantPayload === "string") {
+          assistantText = assistantPayload;
+        } else if (assistantPayload?.text) {
+          assistantText = assistantPayload.text;
+          if (Array.isArray(assistantPayload.sources)) assistantSources = assistantPayload.sources;
+        } else {
+          assistantText = JSON.stringify(assistantPayload);
+        }
+
+        const structured = parseStructuredSections(assistantText) || undefined;
+
+        const assistantMsg: Message = {
+          id: uid("a_"),
+          role: "assistant",
+          text: assistantText,
+          structured,
+          sources: assistantSources,
+          ts: nowISO(),
+        };
+
+        setMessages((prev) => prev.filter((p) => p.id !== placeholderMsg.id).concat(assistantMsg));
+      } catch (err: any) {
+        console.error("Chat error:", err);
+        const serverMsg =
+          err?.response?.data?.error ||
+          err?.response?.data?.message ||
+          err?.message ||
+          "Sorry — an unexpected error occurred.";
+
+        const assistantMsg: Message = {
+          id: uid("a_"),
+          role: "assistant",
+          text: String(serverMsg),
+          sources: [],
+          ts: nowISO(),
+          error: true,
+        };
+
+        setMessages((prev) => prev.filter((p) => p.id !== placeholderMsg.id).concat(assistantMsg));
+        setErrorMsg(typeof serverMsg === "string" ? serverMsg : "Request failed");
+      } finally {
+        setLoading(false);
+        inputRef.current?.focus();
       }
-
-      // Try parse structured sections if present
-      const structured = parseStructuredSections(assistantText) || undefined;
-
-      const assistantMsg: Message = {
-        id: uid("a_"),
-        role: "assistant",
-        text: assistantText,
-        structured,
-        sources: assistantSources,
-        ts: nowISO(),
-      };
-
-      setMessages((prev) => prev.filter((p) => p.id !== placeholderMsg.id).concat(assistantMsg));
-    } catch (err: any) {
-      console.error("Chat error:", err);
-      const serverMsg =
-        err?.response?.data?.error ||
-        err?.response?.data?.message ||
-        err?.message ||
-        "Sorry — an unexpected error occurred.";
-
-      const assistantMsg: Message = {
-        id: uid("a_"),
-        role: "assistant",
-        text: String(serverMsg),
-        sources: [],
-        ts: nowISO(),
-        error: true,
-      };
-
-      setMessages((prev) => prev.filter((p) => p.id !== placeholderMsg.id).concat(assistantMsg));
-      setErrorMsg(typeof serverMsg === "string" ? serverMsg : "Request failed");
-    } finally {
-      setLoading(false);
-      inputRef.current?.focus();
-    }
-  }, [API_BASE, depth, extraContext, includeSources, loading, persona, query, tone]);
+    },
+    [API_BASE, depth, extraContext, includeSources, loading, persona, query, tone]
+  );
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -229,7 +217,6 @@ export default function ChatPage(): JSX.Element {
     }
   }
 
-  // Export conversation as plain text
   async function exportConversation() {
     const lines: string[] = [];
     for (const m of messages) {
@@ -258,7 +245,9 @@ export default function ChatPage(): JSX.Element {
     <div className="page">
       <header className="page-header">
         <div className="left">
-          <button className="back" onClick={() => router.push("/")}>← Back</button>
+          <button className="back" onClick={() => router.push("/")}>
+            ← Back
+          </button>
           <h1>ArcheoHub — Archaeologist Chat</h1>
           <p className="muted">Ask questions; get in-depth, structured archaeological answers.</p>
         </div>
@@ -292,15 +281,19 @@ export default function ChatPage(): JSX.Element {
             <span>Include sources</span>
           </label>
 
-          <button className="small-btn" onClick={() => {
-            // insert an advanced context example
-            setExtraContext("User is a late medieval ceramicist seeking technical interpretation of glazes.");
-            alert("Advanced context set to an example. Edit as needed.");
-          }}>
+          <button
+            className="small-btn"
+            onClick={() => {
+              setExtraContext("User is a late medieval ceramicist seeking technical interpretation of glazes.");
+              alert("Advanced context set to an example. Edit as needed.");
+            }}
+          >
             Quick context example
           </button>
 
-          <button className="small-btn" onClick={exportConversation}>Export convo</button>
+          <button className="small-btn" onClick={exportConversation}>
+            Export convo
+          </button>
         </div>
       </header>
 
@@ -311,7 +304,15 @@ export default function ChatPage(): JSX.Element {
             <ul>
               {EXAMPLES.map((ex, i) => (
                 <li key={i}>
-                  <button className="example" onClick={() => { setQuery(ex); inputRef.current?.focus(); }}>{ex}</button>
+                  <button
+                    className="example"
+                    onClick={() => {
+                      setQuery(ex);
+                      inputRef.current?.focus();
+                    }}
+                  >
+                    {ex}
+                  </button>
                 </li>
               ))}
             </ul>
@@ -330,7 +331,9 @@ export default function ChatPage(): JSX.Element {
             {messages.length === 0 && (
               <div className="welcome">
                 <h2>Welcome — ArcheoHub</h2>
-                <p className="muted">Ask an archaeological question or pick an example on the left. Increase depth for longer, more technical answers.</p>
+                <p className="muted">
+                  Ask an archaeological question or pick an example on the left. Increase depth for longer, more technical answers.
+                </p>
               </div>
             )}
 
@@ -346,7 +349,6 @@ export default function ChatPage(): JSX.Element {
                       <span className="time">{formatTime(m.ts)}</span>
                     </div>
 
-                    {/* If the assistant returned structured sections, render them as panels */}
                     {m.structured ? (
                       <div className="sections">
                         {Object.entries(m.structured).map(([k, v]) => (
@@ -357,10 +359,11 @@ export default function ChatPage(): JSX.Element {
                         ))}
                       </div>
                     ) : (
-                      <div className="text" style={{ whiteSpace: "pre-wrap" }}>{m.text}</div>
+                      <div className="text" style={{ whiteSpace: "pre-wrap" }}>
+                        {m.text}
+                      </div>
                     )}
 
-                    {/* Sources */}
                     {m.sources && m.sources.length > 0 && (
                       <div className="sources">
                         <div className="sources-title">Sources</div>
@@ -369,15 +372,27 @@ export default function ChatPage(): JSX.Element {
                             <li key={idx} className="source">
                               <div className="source-left">
                                 <div className="domain">{getDomain(s.url)}</div>
-                                <a href={s.url} target="_blank" rel="noreferrer" className="link">{s.title || s.url}</a>
+                                <a href={s.url} target="_blank" rel="noreferrer" className="link">
+                                  {s.title || s.url}
+                                </a>
                                 {s.excerpt && <div className="excerpt">{s.excerpt}</div>}
                               </div>
                               <div className="source-actions">
-                                <button className="tiny" onClick={() => window.open(s.url, "_blank", "noopener")}>🔗</button>
-                                <button className="tiny" onClick={async () => {
-                                  const ok = await copyToClipboard(s.url);
-                                  alert(ok ? "Copied link" : "Copy failed");
-                                }}>📋</button>
+                                <button
+                                  className="tiny"
+                                  onClick={() => window.open(s.url, "_blank", "noopener")}
+                                >
+                                  🔗
+                                </button>
+                                <button
+                                  className="tiny"
+                                  onClick={async () => {
+                                    const ok = await copyToClipboard(s.url);
+                                    alert(ok ? "Copied link" : "Copy failed");
+                                  }}
+                                >
+                                  📋
+                                </button>
                               </div>
                             </li>
                           ))}
@@ -402,18 +417,22 @@ export default function ChatPage(): JSX.Element {
               aria-label="Ask ArcheoHub"
               disabled={loading}
             />
-            <button className="send" onClick={() => send()} disabled={loading || !query.trim()}>{loading ? "…" : "Send"}</button>
+            <button className="send" onClick={() => send()} disabled={loading || !query.trim()}>
+              {loading ? "…" : "Send"}
+            </button>
           </div>
         </section>
       </main>
 
       <style jsx>{`
         :root {
-          --bg: #0b0b0d;
-          --panel: #121215;
-          --muted: #9a9aa0;
-          --border: #222227;
-          --accent: #e9e9ea;
+          --bg: #0b1a2a;
+          --panel: #112b44;
+          --muted: #80a0c0;
+          --border: #1a3a5a;
+          --accent: #88c0ff;
+          --btn: #3399ff;
+          --btn-hover: #66b2ff;
         }
         .page {
           background: var(--bg);
@@ -432,10 +451,24 @@ export default function ChatPage(): JSX.Element {
           align-items: flex-start;
         }
 
-        .left { flex: 1; }
-        .back { background: transparent; border: none; color: var(--muted); cursor: pointer; margin-right: 0.6rem; }
-        h1 { margin: 0 0 6px 0; font-size: 1.2rem; }
-        .muted { color: var(--muted); font-size: 0.95rem; }
+        .left {
+          flex: 1;
+        }
+        .back {
+          background: transparent;
+          border: none;
+          color: var(--muted);
+          cursor: pointer;
+          margin-right: 0.6rem;
+        }
+        h1 {
+          margin: 0 0 6px 0;
+          font-size: 1.2rem;
+        }
+        .muted {
+          color: var(--muted);
+          font-size: 0.95rem;
+        }
 
         .controls {
           width: 320px;
@@ -445,9 +478,29 @@ export default function ChatPage(): JSX.Element {
           align-items: stretch;
         }
 
-        .control-row { display:flex; align-items:center; gap:0.6rem; justify-content: space-between; }
-        select, input[type="range"], textarea { background: #0d0d0e; color: var(--accent); border: 1px solid var(--border); padding: 6px 8px; border-radius: 8px; }
-        .small-btn { background: #111; color: var(--accent); border: 1px solid var(--border); padding: 8px; border-radius: 8px; cursor: pointer; }
+        .control-row {
+          display: flex;
+          align-items: center;
+          gap: 0.6rem;
+          justify-content: space-between;
+        }
+        select,
+        input[type="range"],
+        textarea {
+          background: #0e2a48;
+          color: var(--accent);
+          border: 1px solid var(--border);
+          padding: 6px 8px;
+          border-radius: 8px;
+        }
+        .small-btn {
+          background: #0f3a66;
+          color: var(--accent);
+          border: 1px solid var(--border);
+          padding: 8px;
+          border-radius: 8px;
+          cursor: pointer;
+        }
 
         .chat-area {
           max-width: 1100px;
@@ -457,10 +510,29 @@ export default function ChatPage(): JSX.Element {
           gap: 1rem;
         }
 
-        .sidebar { background: transparent; }
-        .examples h3 { margin: 0 0 6px 0; }
-        .examples ul { list-style: none; padding: 0; margin: 0 0 8px 0; display:flex; flex-direction: column; gap: 8px; }
-        .example { background: #0f0f10; color: var(--accent); border: 1px solid var(--border); padding: 8px; border-radius: 8px; text-align: left; cursor: pointer; }
+        .sidebar {
+          background: transparent;
+        }
+        .examples h3 {
+          margin: 0 0 6px 0;
+        }
+        .examples ul {
+          list-style: none;
+          padding: 0;
+          margin: 0 0 8px 0;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .example {
+          background: #0f0f10;
+          color: var(--accent);
+          border: 1px solid var(--border);
+          padding: 8px;
+          border-radius: 8px;
+          text-align: left;
+          cursor: pointer;
+        }
 
         .chat-shell {
           background: var(--panel);
@@ -482,48 +554,182 @@ export default function ChatPage(): JSX.Element {
           gap: 12px;
         }
 
-        .welcome { text-align: center; color: var(--muted); }
+        .welcome {
+          text-align: center;
+          color: var(--muted);
+        }
 
-        .msg { display: flex; gap: 12px; align-items: flex-start; }
-        .msg.user { justify-content: flex-end; }
-        .avatar { width: 40px; height: 40px; border-radius: 8px; background: #111; display:grid; place-items:center; font-size: 18px; border:1px solid var(--border); }
+        .msg {
+          display: flex;
+          gap: 12px;
+          align-items: flex-start;
+        }
+        .msg.user {
+          justify-content: flex-end;
+        }
+        .avatar {
+          width: 40px;
+          height: 40px;
+          border-radius: 8px;
+          background: #0c2b50;
+          display: grid;
+          place-items: center;
+          font-size: 18px;
+          border: 1px solid var(--border);
+        }
 
-        .msg-body { max-width: 78%; background: #0f0f10; border: 1px solid var(--border); padding: 12px; border-radius: 10px; }
-        .msg-header { display:flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
-        .time { color: var(--muted); font-size: 12px; }
+        .msg-body {
+          max-width: 78%;
+          background: #0c345b;
+          border: 1px solid var(--border);
+          padding: 12px;
+          border-radius: 10px;
+        }
+        .msg-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 8px;
+          margin-bottom: 6px;
+        }
+        .time {
+          color: var(--muted);
+          font-size: 12px;
+        }
 
-        .sections { display:flex; flex-direction: column; gap: 8px; }
-        .section { background: #0b0b0d; padding: 8px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.02); }
-        .section-title { font-weight: 700; margin-bottom: 6px; }
-        .section-body { color: var(--accent); white-space: pre-wrap; }
+        .sections {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .section {
+          background: #0a2743;
+          padding: 8px;
+          border-radius: 8px;
+          border: 1px solid rgba(255, 255, 255, 0.02);
+        }
+        .section-title {
+          font-weight: 700;
+          margin-bottom: 6px;
+          color: var(--accent);
+        }
+        .section-body {
+          color: var(--accent);
+          white-space: pre-wrap;
+        }
 
-        .text { white-space: pre-wrap; color: var(--accent); }
+        .text {
+          white-space: pre-wrap;
+          color: var(--accent);
+        }
 
-        .sources { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 10px; }
-        .sources-title { font-weight: 700; margin-bottom: 6px; color: var(--accent); }
-        .source { display:flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px dashed rgba(255,255,255,0.02); }
-        .source:last-child { border-bottom: none; }
-        .domain { color: var(--muted); font-size: 12px; }
-        .link { color: var(--accent); font-weight:600; text-decoration: none; }
-        .excerpt { color: var(--muted); font-size: 13px; margin-top: 4px; }
+        .sources {
+          margin-top: 10px;
+          border-top: 1px dashed var(--border);
+          padding-top: 10px;
+        }
+        .sources-title {
+          font-weight: 700;
+          margin-bottom: 6px;
+          color: var(--accent);
+        }
+        .source {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          padding: 8px 0;
+          border-bottom: 1px dashed rgba(255, 255, 255, 0.02);
+        }
+        .source:last-child {
+          border-bottom: none;
+        }
+        .domain {
+          color: var(--muted);
+          font-size: 12px;
+        }
+        .link {
+          color: var(--btn);
+          font-weight: 600;
+          text-decoration: none;
+        }
+        .excerpt {
+          color: var(--muted);
+          font-size: 13px;
+          margin-top: 4px;
+        }
 
-        .source-actions { display:flex; gap: 8px; }
-        .tiny { background: transparent; color: var(--accent); border: 1px solid var(--border); padding: 6px; border-radius: 6px; cursor: pointer; }
+        .source-actions {
+          display: flex;
+          gap: 8px;
+        }
+        .tiny {
+          background: transparent;
+          color: var(--accent);
+          border: 1px solid var(--border);
+          padding: 6px;
+          border-radius: 6px;
+          cursor: pointer;
+        }
 
-        .input-bar { display:flex; gap: 8px; padding: 12px; border-top: 1px solid var(--border); background: linear-gradient(180deg, rgba(255,255,255,0.01), transparent); }
-        input[placeholder], textarea[placeholder] { color: rgba(255,255,255,0.6); }
+        .input-bar {
+          display: flex;
+          gap: 8px;
+          padding: 12px;
+          border-top: 1px solid var(--border);
+          background: linear-gradient(180deg, rgba(255, 255, 255, 0.01), transparent);
+        }
+        input[placeholder],
+        textarea[placeholder] {
+          color: rgba(255, 255, 255, 0.6);
+        }
 
-        input[type="text"], input[type="search"], input[type="email"], input[type="url"] { background: #0d0d0e; border: 1px solid var(--border); color: var(--accent); padding: 10px 12px; border-radius: 8px; flex: 1; }
-        .send { min-width: 96px; background: var(--accent); color: #0b0b0d; border: none; padding: 10px 12px; border-radius: 8px; cursor: pointer; font-weight: 700; }
-        .send:disabled { opacity: 0.5; cursor: not-allowed; }
+        input[type="text"],
+        input[type="search"],
+        input[type="email"],
+        input[type="url"] {
+          background: #0d0d0e;
+          border: 1px solid var(--border);
+          color: var(--accent);
+          padding: 10px 12px;
+          border-radius: 8px;
+          flex: 1;
+        }
+        .send {
+          min-width: 96px;
+          background: var(--btn);
+          color: #0b0b0d;
+          border: none;
+          padding: 10px 12px;
+          border-radius: 8px;
+          cursor: pointer;
+          font-weight: 700;
+        }
+        .send:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
 
-        .muted { color: var(--muted); }
-        .small { font-size: 12px; }
+        .muted {
+          color: var(--muted);
+        }
+        .small {
+          font-size: 12px;
+        }
 
         @media (max-width: 980px) {
-          .chat-area { grid-template-columns: 1fr; }
-          .controls { width: 100%; order: 2; display:flex; gap:8px; flex-wrap:wrap; }
-          .sidebar { order: 1; }
+          .chat-area {
+            grid-template-columns: 1fr;
+          }
+          .controls {
+            width: 100%;
+            order: 2;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+          }
+          .sidebar {
+            order: 1;
+          }
         }
       `}</style>
     </div>
