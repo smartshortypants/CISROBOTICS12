@@ -1,4 +1,8 @@
+import { useRouter } from "next/router";
+
 export default function Home() {
+  const router = useRouter();
+
   return (
     <main style={styles.container}>
       <section style={styles.hero}>
@@ -9,27 +13,62 @@ export default function Home() {
       </section>
 
       <section style={styles.grid}>
-        <Card icon="🏺" title="Artifacts" desc="Browse historical artifacts and relics." />
-        <Card icon="⛏" title="Excavations" desc="Discover ongoing and past excavations." />
-        <Card icon="📚" title="Research" desc="Read simplified and academic research." />
-        <Card icon="💬" title="AI Chat" desc="Ask questions about ancient civilizations." />
+        <Card
+          icon="🏺"
+          title="Artifacts"
+          desc="Browse historical artifacts and relics."
+          onClick={() => router.push("/artifacts")}
+        />
+        <Card
+          icon="⛏"
+          title="Excavations"
+          desc="Discover ongoing and past excavations."
+          onClick={() => router.push("/excavations")}
+        />
+        <Card
+          icon="📚"
+          title="Research"
+          desc="Read simplified and academic research."
+          onClick={() => router.push("/research")}
+        />
+        <Card
+          icon="💬"
+          title="AI Chat"
+          desc="Ask questions about ancient civilizations."
+          onClick={() => router.push("/chat")}
+        />
       </section>
     </main>
   );
 }
 
-/* Card component (clean & reusable) */
 function Card({
   icon,
   title,
   desc,
+  onClick,
 }: {
   icon: string;
   title: string;
   desc: string;
+  onClick: () => void;
 }) {
   return (
-    <div style={styles.card}>
+    <div
+      style={styles.card}
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => e.key === "Enter" && onClick()}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.transform = "translateY(-4px)";
+        e.currentTarget.style.borderColor = "#3f3f46";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.transform = "translateY(0)";
+        e.currentTarget.style.borderColor = "#2a2a33";
+      }}
+    >
       <div style={styles.icon}>{icon}</div>
       <h3 style={styles.cardTitle}>{title}</h3>
       <p style={styles.cardDesc}>{desc}</p>
