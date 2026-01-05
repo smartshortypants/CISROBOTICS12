@@ -1,18 +1,17 @@
-// name=prisma/schema.prisma
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = "file:./dev.db"
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model User {
-  id           Int     @id @default(autoincrement())
-  email        String  @unique
+  id           Int      @id @default(autoincrement())
+  email        String   @unique
   passwordHash String
   name         String?
-  imageBase64  String?  // small images only; use external storage for production
+  imageBase64  String?  // small images only; prefer external storage for prod
   createdAt    DateTime @default(now())
 }
