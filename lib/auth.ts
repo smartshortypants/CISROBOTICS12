@@ -1,15 +1,33 @@
-import { PrismaClient } from "@prisma/client";
+// lib/auth.ts
+import jwt from "jsonwebtoken";
+import type { User } from "@prisma/client";
 
-declare global {
-  // prevent multiple instances in dev with HMR
-  // eslint-disable-next-line no-var
-  var prisma: PrismaClient | undefined;
+const JWT_SECRET = process.env.AUTH_JWT_SECRET || "dev-secret-change-me";
+const TOKEN_NAME = "auth_token";
+const TOKEN_EXPIRES = 60 * 60 * 24 * 7; // 7 days in seconds
+
+export function signUserToken(user: Partial<User>) {
+  const payload = { id: user.id, email: user.email, name: user.name, imageBase64: user.imageBase64 };
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: TOKEN_EXPIRES });
 }
 
-export const prisma =
-  global.prisma ||
-  new PrismaClient({
-    log: ["query"].filter(Boolean) as any,
-  });
+export function verifyUserToken(token: string) {
+  try {
+    return jwt.verify(token, JWT_SECRET) as any;
+  } catch {
+    return null;
+  }
+}
 
-if (process.env.NODE_ENV !== "production") global.prisma = prisma;
+export function cookieOptions() {
+  const isProd = process.env.NODE_ENV === "production";
+  return {
+    httpOnly: true,
+    maxAge: TOKEN_EXPIRES,
+    path: "/",
+    secure: isProd,
+    sameSite: "lax" as const,
+  };
+}
+
+export const TOKEN_NAME_EXPORT = TOKEN_NAME;
