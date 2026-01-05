@@ -1,0 +1,18 @@
+// name=prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id           Int     @id @default(autoincrement())
+  email        String  @unique
+  passwordHash String
+  name         String?
+  imageBase64  String?  // small images only; use external storage for production
+  createdAt    DateTime @default(now())
+}
