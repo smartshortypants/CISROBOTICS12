@@ -1,10 +1,14 @@
-/** Minimal Next.js config */
+/** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  swcMinify: true,
-  // If you host the frontend under a subpath (project page), set `basePath` and `assetPrefix`.
-  // assetPrefix: process.env.ASSET_PREFIX || '',
-  // basePath: process.env.BASE_PATH || ''
-}
+  images: {
+    domains: [
+      "upload.wikimedia.org",
+      "images.unsplash.com",
+      "cdn.britannica.com",
+      "upload.wikimedia.org",
+    ],
+  },
+};
 
-module.exports = nextConfig
+module.exports = nextConfig;
